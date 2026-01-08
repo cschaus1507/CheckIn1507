@@ -15,7 +15,7 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
-const SUBTEAMS = ["Mechanical", "Programming", "Electrical", "CAD", "Media", "Business", "Strategy"];
+const SUBTEAMS = ["Build", "Programming", "Electrical", "CAD/CAM", "Imagery & Outreach"];
 
 export default function StudentUI() {
   const [students, setStudents] = useState([]);
