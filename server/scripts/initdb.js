@@ -5,11 +5,13 @@ import pg from "pg";
 const { Pool } = pg;
 
 function splitSql(sql) {
-  // Simple splitter good for our schema.sql (no stored procs, no $$ blocks)
-  return sql
+  // Remove single-line comments first
+  const noComments = sql.replace(/--.*$/gm, "");
+
+  return noComments
     .split(";")
     .map(s => s.trim())
-    .filter(s => s.length && !s.startsWith("--"));
+    .filter(Boolean);
 }
 
 async function runFile(pool, relPath) {
