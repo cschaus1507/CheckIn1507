@@ -43,16 +43,23 @@ export default function StudentUI() {
     showMessage._t = window.setTimeout(() => setMsg(""), 2500);
   }
 
-  function resetForNextStudent() {
-    setStudentId("");
-    setSubteam("");
-    setWorkingOn("");
-    setSession(null);
-    setStatus("not_clocked_in");
 
-    localStorage.removeItem("warlocks_studentId");
-    localStorage.removeItem("warlocks_subteam");
-  }
+function resetForNextStudent() {
+  setStudentId("");
+  setSubteam("");
+  setWorkingOn("");
+  setSession(null);
+  setStatus("not_clocked_in");
+
+  localStorage.removeItem("warlocks_studentId");
+  localStorage.removeItem("warlocks_subteam");
+
+  // ⬆️ Scroll back to top for next student
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth"
+  });
+}
 
   // Load roster for dropdown
   useEffect(() => {
