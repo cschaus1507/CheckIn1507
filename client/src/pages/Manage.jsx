@@ -3,7 +3,7 @@ import Card from "../components/Card.jsx";
 import BoltMark from "../components/BoltMark.jsx";
 import { api } from "../api.js";
 
-const SUBTEAMS = ["", "Mechanical", "Programming", "Electrical", "CAD", "Media", "Business", "Strategy"];
+const SUBTEAMS = ["", "Build", "Programming", "Electrical", "CAD/CAM", "Imagery & Outreach"];
 
 export default function Manage() {
   const [ready, setReady] = useState(false);
