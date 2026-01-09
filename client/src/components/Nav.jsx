@@ -19,6 +19,9 @@ export default function Nav() {
           <NavLink to="/" className={({ isActive }) => `${base} ${isActive ? active : inactive}`}>
             Student
           </NavLink>
+          <NavLink to="/tasks" className={({ isActive }) => `${base} ${isActive ? active : inactive}`}>
+            Tasks
+          </NavLink>
           <NavLink to="/mentor" className={({ isActive }) => `${base} ${isActive ? active : inactive}`}>
             Mentor
           </NavLink>

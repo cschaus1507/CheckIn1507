@@ -5,6 +5,8 @@ import { pool } from "./db.js";
 
 dotenv.config();
 
+const EASTERN_TZ = "America/New_York";
+
 const app = express();
 app.use(express.json({ limit: "1mb" }));
 
@@ -40,7 +42,7 @@ async function upsertTodaySession(studentId) {
   const r = await pool.query(
     `
     insert into daily_sessions (student_id, meeting_date)
-    values ($1, current_date)
+    values ($1, (timezone('America/New_York', now()))::date)
     on conflict (student_id, meeting_date) do update
       set updated_at = now()
     returning *
@@ -72,6 +74,23 @@ function requireKey(envName) {
   };
 }
 
+
+function easternDateSql() {
+  return "(timezone('America/New_York', now()))::date";
+}
+
+async function autoCloseOldSessions() {
+  // If a student forgets to clock out, auto clock-out at exactly 4 hours after clock-in.
+  await pool.query(`
+    update daily_sessions
+       set clock_out_at = clock_in_at + interval '4 hours',
+           updated_at = now()
+     where clock_in_at is not null
+       and clock_out_at is null
+       and clock_in_at < now() - interval '4 hours'
+  `);
+}
+
 function pickStatus(session) {
   if (session.clock_in_at && !session.clock_out_at) return "clocked_in";
   if (session.clock_in_at && session.clock_out_at) return "clocked_out";
@@ -81,13 +100,14 @@ function pickStatus(session) {
 // --- Student: clock in ---
 app.post("/api/student/clock-in", async (req, res) => {
   try {
-    const { studentId, subteam, workingOn } = req.body || {};
+    const { studentId, subteam, workingOn, taskId } = req.body || {};
     if (!studentId) return res.status(400).json({ error: "Missing studentId" });
 
     await assertStudentActive(studentId);
+    await autoCloseOldSessions();
+
     let session = await upsertTodaySession(studentId);
 
-    // If already clocked in and not out, keep clock_in_at as-is
     const r = await pool.query(
       `
       update daily_sessions
@@ -95,12 +115,35 @@ app.post("/api/student/clock-in", async (req, res) => {
              clock_out_at = null,
              subteam = coalesce(nullif($2,''), subteam),
              working_on = coalesce($3, working_on),
+             task_id = coalesce($4::bigint, task_id),
              updated_at = now()
        where id = $1
        returning *
       `,
-      [session.id, subteam || "", workingOn ?? null]
+      [session.id, subteam || "", workingOn ?? null, taskId ?? null]
     );
+
+    if (taskId) {
+      await pool.query(
+        `
+        insert into task_assignments (task_id, student_id)
+        values ($1, $2)
+        on conflict do nothing
+        `,
+        [taskId, studentId]
+      );
+
+      // If task is still To Do, bump to In Progress automatically. Otherwise keep current status.
+      await pool.query(
+        `
+        update tasks
+           set status = case when status = 'todo' then 'in_progress' else status end,
+               updated_at = now()
+         where id = $1
+        `,
+        [taskId]
+      );
+    }
 
     res.json({ session: r.rows[0], status: pickStatus(r.rows[0]) });
   } catch (e) {
@@ -108,7 +151,6 @@ app.post("/api/student/clock-in", async (req, res) => {
   }
 });
 
-// --- Student: clock out ---
 app.post("/api/student/clock-out", async (req, res) => {
   try {
     const { studentId } = req.body || {};
@@ -194,12 +236,13 @@ app.post("/api/student/need", async (req, res) => {
 
 // --- Student: get today's session (for UI state) ---
 app.get("/api/student/today/:id", async (req, res) => {
+  await autoCloseOldSessions();
   try {
     const studentId = Number(req.params.id);
     await assertStudentActive(studentId);
 
     const r = await pool.query(
-      `select * from daily_sessions where student_id=$1 and meeting_date=current_date`,
+      `select * from daily_sessions where student_id=$1 and meeting_date=(timezone('America/New_York', now()))::date`,
       [studentId]
     );
 
@@ -212,10 +255,11 @@ app.get("/api/student/today/:id", async (req, res) => {
 
 // --- Mentor: current status board ---
 app.get("/api/mentor/status", requireKey("MENTOR_KEY"), async (req, res) => {
+  await autoCloseOldSessions();
   const date = req.query.date || null; // YYYY-MM-DD optional
   const r = await pool.query(
     `
-    with d as (select coalesce($1::date, current_date) as meeting_date)
+    with d as (select coalesce($1::date, (timezone('America/New_York', now()))::date) as meeting_date)
     select
       s.id as student_id,
       s.full_name,
@@ -245,6 +289,7 @@ app.get("/api/mentor/status", requireKey("MENTOR_KEY"), async (req, res) => {
 
 // --- Mentor: student card ---
 app.get("/api/mentor/student/:id", requireKey("MENTOR_KEY"), async (req, res) => {
+  await autoCloseOldSessions();
   const studentId = Number(req.params.id);
 
   const s = await pool.query(`select id, full_name, subteam from students where id=$1`, [studentId]);
@@ -260,6 +305,7 @@ app.get("/api/mentor/student/:id", requireKey("MENTOR_KEY"), async (req, res) =>
 
 // --- Mentor: attendance report (date range) ---
 app.get("/api/mentor/report", requireKey("MENTOR_KEY"), async (req, res) => {
+  await autoCloseOldSessions();
   const { start, end } = req.query;
   if (!start || !end) return res.status(400).json({ error: "Missing start/end (YYYY-MM-DD)" });
 
@@ -300,6 +346,280 @@ app.get("/api/mentor/report", requireKey("MENTOR_KEY"), async (req, res) => {
   );
 
   res.json({ rows: r.rows });
+});
+
+
+
+/* ---------------- Tasks (public board + mentor controls) ----------------
+   - GET endpoints are public
+   - Write endpoints require MENTOR_KEY via x-access-key
+   - Students can join/leave tasks and post comments when they select their name
+*/
+
+app.get("/api/tasks", async (req, res) => {
+  try {
+    const subteam = (req.query.subteam || "").trim();
+    const status = (req.query.status || "").trim();
+
+    const filters = [];
+    const params = [];
+    let i = 1;
+
+    if (subteam) {
+      filters.push(`t.subteam = $${i++}`);
+      params.push(subteam);
+    }
+    if (status) {
+      filters.push(`t.status = $${i++}`);
+      params.push(status);
+    }
+
+    const where = filters.length ? `where ${filters.join(" and ")}` : "";
+
+    const r = await pool.query(
+      `
+      with last_comment as (
+        select task_id, max(created_at) as last_comment_at
+        from task_comments
+        group by task_id
+      ),
+      last_assign as (
+        select task_id, max(assigned_at) as last_assigned_at
+        from task_assignments
+        where unassigned_at is null
+        group by task_id
+      )
+      select
+        t.id,
+        t.title,
+        t.subteam,
+        t.status,
+        t.description,
+        t.created_at,
+        t.updated_at,
+        greatest(
+          t.updated_at,
+          coalesce(lc.last_comment_at, 'epoch'::timestamptz),
+          coalesce(la.last_assigned_at, 'epoch'::timestamptz)
+        ) as last_activity_at,
+        (
+          greatest(
+            t.updated_at,
+            coalesce(lc.last_comment_at, 'epoch'::timestamptz),
+            coalesce(la.last_assigned_at, 'epoch'::timestamptz)
+          ) < now() - interval '3 days'
+        ) as is_stale,
+        coalesce(assignees.assignees, '[]'::json) as assignees
+      from tasks t
+      left join last_comment lc on lc.task_id = t.id
+      left join last_assign la on la.task_id = t.id
+      left join lateral (
+        select json_agg(json_build_object('student_id', s.id, 'full_name', s.full_name) order by s.full_name) as assignees
+        from task_assignments ta
+        join students s on s.id = ta.student_id
+        where ta.task_id = t.id and ta.unassigned_at is null
+      ) assignees on true
+      ${where}
+      order by
+        case t.status
+          when 'todo' then 1
+          when 'in_progress' then 2
+          when 'blocked' then 3
+          when 'done' then 4
+          else 5
+        end,
+        t.updated_at desc
+      `,
+      params
+    );
+
+    res.json({ tasks: r.rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message || "Server error" });
+  }
+});
+
+app.get("/api/tasks/:id/comments", async (req, res) => {
+  try {
+    const taskId = Number(req.params.id);
+    const r = await pool.query(
+      `
+      select id, task_id, author_type, author_label, comment, created_at
+      from task_comments
+      where task_id = $1
+      order by created_at asc
+      `,
+      [taskId]
+    );
+    res.json({ comments: r.rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message || "Server error" });
+  }
+});
+
+app.post("/api/tasks/:id/comments", async (req, res) => {
+  try {
+    const taskId = Number(req.params.id);
+    const { authorType, authorLabel, studentId, comment } = req.body || {};
+    if (!comment || !String(comment).trim()) return res.status(400).json({ error: "Missing comment" });
+
+    let finalType = authorType;
+    let finalLabel = authorLabel;
+
+    if (studentId) {
+      const s = await pool.query(`select full_name from students where id=$1`, [studentId]);
+      if (s.rowCount === 0) return res.status(404).json({ error: "Student not found" });
+      finalType = "student";
+      finalLabel = s.rows[0].full_name;
+    } else {
+      finalType = finalType === "mentor" ? "mentor" : "mentor";
+      finalLabel = finalLabel && String(finalLabel).trim() ? String(finalLabel).trim() : "Mentor";
+    }
+
+    const r = await pool.query(
+      `
+      insert into task_comments (task_id, author_type, author_label, comment)
+      values ($1, $2, $3, $4)
+      returning id, task_id, author_type, author_label, comment, created_at
+      `,
+      [taskId, finalType, finalLabel, String(comment).trim()]
+    );
+
+    await pool.query(`update tasks set updated_at=now() where id=$1`, [taskId]);
+
+    res.json({ comment: r.rows[0] });
+  } catch (e) {
+    res.status(500).json({ error: e.message || "Server error" });
+  }
+});
+
+app.post("/api/tasks/:id/join", async (req, res) => {
+  try {
+    const taskId = Number(req.params.id);
+    const { studentId } = req.body || {};
+    if (!studentId) return res.status(400).json({ error: "Missing studentId" });
+
+    await assertStudentActive(studentId);
+
+    await pool.query(
+      `
+      insert into task_assignments (task_id, student_id)
+      values ($1, $2)
+      on conflict do nothing
+      `,
+      [taskId, studentId]
+    );
+
+    await pool.query(`update tasks set updated_at=now() where id=$1`, [taskId]);
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || "Server error" });
+  }
+});
+
+app.post("/api/tasks/:id/leave", async (req, res) => {
+  try {
+    const taskId = Number(req.params.id);
+    const { studentId } = req.body || {};
+    if (!studentId) return res.status(400).json({ error: "Missing studentId" });
+
+    await pool.query(
+      `
+      update task_assignments
+         set unassigned_at = now()
+       where task_id = $1 and student_id = $2 and unassigned_at is null
+      `,
+      [taskId, studentId]
+    );
+
+    await pool.query(`update tasks set updated_at=now() where id=$1`, [taskId]);
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || "Server error" });
+  }
+});
+
+// Mentor-only task creation and status updates
+app.post("/api/tasks", requireKey("MENTOR_KEY"), async (req, res) => {
+  try {
+    const { title, subteam, description, status } = req.body || {};
+    if (!title || !String(title).trim()) return res.status(400).json({ error: "Missing title" });
+    if (!subteam || !String(subteam).trim()) return res.status(400).json({ error: "Missing subteam" });
+
+    const st = status && ["todo","in_progress","blocked","done"].includes(status) ? status : "todo";
+
+    const r = await pool.query(
+      `
+      insert into tasks (title, subteam, status, description)
+      values ($1, $2, $3, $4)
+      returning *
+      `,
+      [String(title).trim(), String(subteam).trim(), st, String(description || "").trim()]
+    );
+
+    res.json({ task: r.rows[0] });
+  } catch (e) {
+    res.status(500).json({ error: e.message || "Server error" });
+  }
+});
+
+app.patch("/api/tasks/:id", requireKey("MENTOR_KEY"), async (req, res) => {
+  try {
+    const taskId = Number(req.params.id);
+    const { title, subteam, description, status } = req.body || {};
+
+    const st = status && ["todo","in_progress","blocked","done"].includes(status) ? status : null;
+
+    const r = await pool.query(
+      `
+      update tasks
+         set title = coalesce(nullif($2,''), title),
+             subteam = coalesce(nullif($3,''), subteam),
+             description = coalesce($4, description),
+             status = coalesce($5, status),
+             updated_at = now()
+       where id = $1
+       returning *
+      `,
+      [taskId,
+       title ? String(title).trim() : "",
+       subteam ? String(subteam).trim() : "",
+       description === undefined ? null : String(description),
+       st]
+    );
+
+    if (r.rowCount === 0) return res.status(404).json({ error: "Task not found" });
+    res.json({ task: r.rows[0] });
+  } catch (e) {
+    res.status(500).json({ error: e.message || "Server error" });
+  }
+});
+
+app.post("/api/tasks/:id/assign", requireKey("MENTOR_KEY"), async (req, res) => {
+  try {
+    const taskId = Number(req.params.id);
+    const { studentId } = req.body || {};
+    if (!studentId) return res.status(400).json({ error: "Missing studentId" });
+
+    await assertStudentActive(studentId);
+
+    await pool.query(
+      `
+      insert into task_assignments (task_id, student_id)
+      values ($1, $2)
+      on conflict do nothing
+      `,
+      [taskId, studentId]
+    );
+
+    await pool.query(`update tasks set updated_at=now() where id=$1`, [taskId]);
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || "Server error" });
+  }
 });
 
 
