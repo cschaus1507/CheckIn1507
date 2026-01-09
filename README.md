@@ -1,4 +1,4 @@
-# Warlocks 1507 Attendance + Status (No Login)
+# Warlocks 1507 Attendance
 
 **Student UI**
 - Select name from dropdown
