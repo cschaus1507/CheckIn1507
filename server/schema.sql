@@ -88,12 +88,8 @@ where need_task = true;
 
 
 -- Add task_id column to daily_sessions if it doesn't exist
-do $$
-begin
-  if not exists (
-    select 1 from information_schema.columns
-     where table_name='daily_sessions' and column_name='task_id'
-  ) then
-    alter table daily_sessions add column task_id bigint references tasks(id) on delete set null;
-  end if;
-end $$;
+alter table daily_sessions
+add column if not exists task_id bigint
+references tasks(id)
+on delete set null;
+
