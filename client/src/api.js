@@ -6,6 +6,12 @@ function withAccessKey(path, headers) {
     const k = sessionStorage.getItem("mentorKey");
     if (k) headers["x-access-key"] = k;
   }
+  // Task endpoints: attach mentor key if present (write endpoints require it)
+  if (path.startsWith("/api/tasks")) {
+    const k = sessionStorage.getItem("mentorKey");
+    if (k) headers["x-access-key"] = k;
+  }
+
   // Admin routes (/manage)
   if (path.startsWith("/api/admin")) {
     const k = sessionStorage.getItem("managerKey");

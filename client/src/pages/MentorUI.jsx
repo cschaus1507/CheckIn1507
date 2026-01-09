@@ -3,15 +3,13 @@ import { Link } from "react-router-dom";
 import Card from "../components/Card.jsx";
 import BoltMark from "../components/BoltMark.jsx";
 import { api } from "../api.js";
+import { formatDateEastern, formatTimeEastern } from "../time.js";
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function toTime(dt) {
-  if (!dt) return "—";
-  return new Date(dt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
+function toTime(dt) { return formatTimeEastern(dt); }
 
 function downloadCSV(filename, rows) {
   const esc = (v) => `"${String(v ?? "").replaceAll('"', '""')}"`;
@@ -109,7 +107,7 @@ useEffect(() => {
         </div>
 
         <div className="text-xs px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-200">
-          Date: <span className="text-white font-semibold">{date}</span>
+          Date: <span className="text-white font-semibold">{formatDateEastern(date)}</span>
         </div>
       </div>
 
@@ -252,7 +250,7 @@ useEffect(() => {
                     <td className="py-2 text-slate-200">{r.subteam || "—"}</td>
                     <td className="py-2 text-slate-200">{r.days_clocked_in}</td>
                     <td className="py-2 text-slate-200">{r.hours_total}</td>
-                    <td className="py-2 text-slate-200">{r.last_day || "—"}</td>
+                    <td className="py-2 text-slate-200">{r.last_day ? formatDateEastern(r.last_day) : "—"}</td>
                   </tr>
                 ))}
                 {reportRows.length === 0 && (

@@ -87,3 +87,15 @@ Set these on the **server** (Render Web Service env vars):
 - `MANAGER_KEY` — required for /manage and all /api/admin calls
 
 Mentors/managers will be prompted for the key in the browser. Keys are stored in `sessionStorage` (clears when the browser is closed).
+
+
+## Tasks Board (/tasks)
+- Kanban stages: To Do → In Progress → Road Blocked → Done
+- Filter chips by subteam
+- Students can join/leave any task and post comments/notes.
+- Mentors (with `MENTOR_KEY`) can create tasks, assign students, and move task stages.
+- Stale indicator: tasks with no activity for 3+ days.
+
+## Timezone
+- All UI time/date displays are formatted for **America/New_York (Eastern)**.
+- Server uses Eastern date for "today" computations.

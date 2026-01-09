@@ -2,11 +2,9 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import Card from "../components/Card.jsx";
 import { api } from "../api.js";
+import { formatDateEastern, formatTimeEastern } from "../time.js";
 
-function toTime(dt) {
-  if (!dt) return "—";
-  return new Date(dt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
+function toTime(dt) { return formatTimeEastern(dt); }
 
 export default function MentorStudent() {
   const { id } = useParams();
@@ -58,7 +56,7 @@ export default function MentorStudent() {
               <tbody>
                 {sessions.map(s => (
                   <tr key={s.id} className="border-b border-slate-900">
-                    <td className="py-2 text-slate-200">{s.meeting_date}</td>
+                    <td className="py-2 text-slate-200">{formatDateEastern(s.meeting_date)}</td>
                     <td className="py-2 text-slate-200">{toTime(s.clock_in_at)}</td>
                     <td className="py-2 text-slate-200">{toTime(s.clock_out_at)}</td>
                     <td className="py-2 text-slate-200">{s.subteam || "—"}</td>

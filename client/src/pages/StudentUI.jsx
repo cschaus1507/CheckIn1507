@@ -2,18 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import Card from "../components/Card.jsx";
 import BoltMark from "../components/BoltMark.jsx";
 import { api } from "../api.js";
-
-function nowLocalTimeLabel(dt) {
-  try {
-    return new Date(dt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return "";
-  }
-}
-
-function todayISO() {
-  return new Date().toISOString().slice(0, 10);
-}
+import { formatDateEastern, formatTimeEastern } from "../time.js";
 
 const SUBTEAMS = ["Build", "Programming", "Electrical", "CAD/CAM", "Imagery & Outreach"];
 
@@ -24,15 +13,19 @@ export default function StudentUI() {
   const [subteam, setSubteam] = useState(() => localStorage.getItem("warlocks_subteam") || "");
   const [workingOn, setWorkingOn] = useState("");
 
+  // Optional: select a task when clocking in
+  const [tasks, setTasks] = useState([]);
+  const [taskId, setTaskId] = useState("");
+
   const [session, setSession] = useState(null);
   const [status, setStatus] = useState("not_clocked_in");
   const [msg, setMsg] = useState("");
 
-  const date = useMemo(() => todayISO(), []);
+  const dateLabel = useMemo(() => formatDateEastern(), []);
   const isSelected = !!studentId;
 
-  const clockedInAt = session?.clock_in_at ? nowLocalTimeLabel(session.clock_in_at) : "—";
-  const clockedOutAt = session?.clock_out_at ? nowLocalTimeLabel(session.clock_out_at) : "—";
+  const clockedInAt = session?.clock_in_at ? formatTimeEastern(session.clock_in_at) : "—";
+  const clockedOutAt = session?.clock_out_at ? formatTimeEastern(session.clock_out_at) : "—";
 
   const isClockedIn = status === "clocked_in";
   const isClockedOut = status === "clocked_out";
@@ -43,30 +36,27 @@ export default function StudentUI() {
     showMessage._t = window.setTimeout(() => setMsg(""), 2500);
   }
 
+  function resetForNextStudent() {
+    setStudentId("");
+    setSubteam("");
+    setWorkingOn("");
+    setTaskId("");
+    setSession(null);
+    setStatus("not_clocked_in");
 
-function resetForNextStudent() {
-  setStudentId("");
-  setSubteam("");
-  setWorkingOn("");
-  setSession(null);
-  setStatus("not_clocked_in");
+    localStorage.removeItem("warlocks_studentId");
+    localStorage.removeItem("warlocks_subteam");
 
-  localStorage.removeItem("warlocks_studentId");
-  localStorage.removeItem("warlocks_subteam");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
-  // ⬆️ Scroll back to top for next student
-  window.scrollTo({
-    top: 0,
-    behavior: "smooth"
-  });
-}
-
-  // Load roster for dropdown
+  // Load roster + tasks list
   useEffect(() => {
     (async () => {
       try {
-        const { students } = await api("/api/students");
+        const [{ students }, { tasks }] = await Promise.all([api("/api/students"), api("/api/tasks")]);
         setStudents(students);
+        setTasks(tasks);
       } catch (e) {
         showMessage(e.message);
       }
@@ -74,7 +64,6 @@ function resetForNextStudent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Remember selected student & subteam (kiosk-friendly, but we clear on clock actions)
   useEffect(() => {
     if (studentId) localStorage.setItem("warlocks_studentId", studentId);
   }, [studentId]);
@@ -93,10 +82,7 @@ function resetForNextStudent() {
         setSession(session);
         setStatus(status);
         setWorkingOn(session?.working_on ?? "");
-
-        // default subteam from session if none chosen yet
         if (!subteam) setSubteam(session?.subteam ?? "");
-
         setMsg("");
       } catch (e) {
         showMessage(e.message);
@@ -131,7 +117,8 @@ function resetForNextStudent() {
         body: JSON.stringify({
           studentId: Number(studentId),
           subteam,
-          workingOn
+          workingOn,
+          taskId: taskId ? Number(taskId) : null
         })
       });
 
@@ -180,7 +167,6 @@ function resetForNextStudent() {
 
   return (
     <div className="grid gap-6 pb-28">
-      {/* Header */}
       <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-slate-900/70 to-slate-900/20 p-6 flex items-start gap-4">
         <BoltMark className="mt-1" />
         <div className="flex-1">
@@ -189,10 +175,10 @@ function resetForNextStudent() {
             <span className="text-blue-400">Check-In</span>
           </div>
           <div className="text-slate-300 mt-1">
-            Select your name, pick your subteam, log what you’re working on, and use the buttons if you need help.
+            Select your name, pick your subteam, choose a task if you want, and log what you’re working on.
           </div>
           <div className="text-xs text-slate-400 mt-2">
-            Date auto-recorded as <span className="text-white font-semibold">{date}</span>.
+            Date (Eastern): <span className="text-white font-semibold">{dateLabel}</span>
           </div>
 
           {msg && (
@@ -203,7 +189,6 @@ function resetForNextStudent() {
         </div>
       </div>
 
-      {/* Name selection */}
       <Card title="1) Select your name">
         <label className="block text-sm font-semibold text-slate-200 mb-2">Name</label>
         <select
@@ -220,11 +205,10 @@ function resetForNextStudent() {
           ))}
         </select>
         <div className="mt-2 text-xs text-slate-400">
-          (Kiosk mode) After clocking in/out, the page resets for the next student.
+          (Kiosk mode) After clocking in/out, the page resets + scrolls to top for the next student.
         </div>
       </Card>
 
-      {/* Subteam */}
       <Card title="2) Subteam">
         <div className="flex flex-wrap gap-2">
           {SUBTEAMS.map((t) => {
@@ -235,7 +219,6 @@ function resetForNextStudent() {
                 disabled={!isSelected}
                 onClick={() => {
                   setSubteam(t);
-                  // save immediately to today's session (if selected)
                   setTimeout(() => syncUpdate({ subteam: t }), 0);
                 }}
                 className={`px-3 py-2 rounded-xl border text-sm font-semibold transition ${
@@ -256,27 +239,47 @@ function resetForNextStudent() {
         </div>
       </Card>
 
-      {/* Working on */}
-      <Card title="3) What are you working on?">
+      <Card title="3) Pick a task (optional)">
+        <div className="grid gap-2">
+          <label className="block text-sm font-semibold text-slate-200">Task</label>
+          <select
+            value={taskId}
+            disabled={!isSelected}
+            onChange={(e) => setTaskId(e.target.value)}
+            className={`w-full rounded-xl bg-slate-950 border-slate-800 text-white ${
+              !isSelected ? "opacity-60 cursor-not-allowed" : ""
+            }`}
+          >
+            <option value="">— None —</option>
+            {tasks.map((t) => (
+              <option key={t.id} value={t.id}>
+                [{t.subteam}] {t.title} ({t.status.replaceAll("_", " ")})
+              </option>
+            ))}
+          </select>
+          <div className="text-xs text-slate-400">
+            You can join any task regardless of its current stage.
+          </div>
+        </div>
+      </Card>
+
+      <Card title="4) What are you working on?">
         <div className="grid gap-3">
           <textarea
             value={workingOn}
             disabled={!isSelected}
             onChange={(e) => setWorkingOn(e.target.value)}
             onBlur={() => syncUpdate()}
-            placeholder="Example: wiring the intake, CAD for bracket, testing auto path, updating scouting..."
+            placeholder="Example: wiring the intake, CAD for bracket, testing auto path, updating outreach graphics..."
             className={`w-full min-h-[110px] rounded-xl bg-slate-950 border-slate-800 text-white ${
               !isSelected ? "opacity-60 cursor-not-allowed" : ""
             }`}
           />
-          <div className="text-xs text-slate-400">
-            Saves when you click out of the box (on blur).
-          </div>
+          <div className="text-xs text-slate-400">Saves when you click out of the box.</div>
         </div>
       </Card>
 
-      {/* Quick buttons */}
-      <Card title="4) Quick buttons">
+      <Card title="5) Quick buttons">
         <div className="flex flex-wrap gap-3">
           <button
             disabled={!isSelected}
@@ -308,7 +311,6 @@ function resetForNextStudent() {
         </div>
       </Card>
 
-      {/* Sticky bottom action bar */}
       <div className="fixed bottom-0 left-0 right-0 z-20">
         <div className="max-w-6xl mx-auto px-4 pb-4">
           <div className="rounded-2xl border border-slate-800 bg-slate-950/80 backdrop-blur shadow-lg">
