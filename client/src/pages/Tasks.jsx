@@ -83,19 +83,25 @@ export default function Tasks() {
 
   function isAssigned(task) {
     if (!studentId) return false;
-    return (task.assignees || []).some(a => String(a.student_id) === String(studentId));
+    return (task.assignees || []).some((a) => String(a.student_id) === String(studentId));
   }
 
   async function join(taskId) {
     if (!studentId) return showMessage("Select your name first.");
-    await api(`/api/tasks/${taskId}/join`, { method: "POST", body: JSON.stringify({ studentId: Number(studentId) }) });
+    await api(`/api/tasks/${taskId}/join`, {
+      method: "POST",
+      body: JSON.stringify({ studentId: Number(studentId) })
+    });
     await load();
     showMessage("✅ Joined.");
   }
 
   async function leave(taskId) {
     if (!studentId) return showMessage("Select your name first.");
-    await api(`/api/tasks/${taskId}/leave`, { method: "POST", body: JSON.stringify({ studentId: Number(studentId) }) });
+    await api(`/api/tasks/${taskId}/leave`, {
+      method: "POST",
+      body: JSON.stringify({ studentId: Number(studentId) })
+    });
     await load();
     showMessage("✅ Left.");
   }
@@ -115,7 +121,10 @@ export default function Tasks() {
       ? { studentId: Number(studentId), comment: commentText.trim() }
       : { authorType: "mentor", authorLabel: "Mentor", comment: commentText.trim() };
 
-    await api(`/api/tasks/${openTaskId}/comments`, { method: "POST", body: JSON.stringify(payload) });
+    await api(`/api/tasks/${openTaskId}/comments`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
     const { comments } = await api(`/api/tasks/${openTaskId}/comments`);
     setComments(comments);
     setCommentText("");
@@ -127,7 +136,12 @@ export default function Tasks() {
     if (!newTitle.trim()) return showMessage("Need a title.");
     await api("/api/tasks", {
       method: "POST",
-      body: JSON.stringify({ title: newTitle.trim(), subteam: newSubteam, description: newDesc.trim(), status: "todo" })
+      body: JSON.stringify({
+        title: newTitle.trim(),
+        subteam: newSubteam,
+        description: newDesc.trim(),
+        status: "todo"
+      })
     });
     setNewTitle("");
     setNewDesc("");
@@ -142,7 +156,10 @@ export default function Tasks() {
 
   async function mentorAssign(taskId, sid) {
     if (!sid) return;
-    await api(`/api/tasks/${taskId}/assign`, { method: "POST", body: JSON.stringify({ studentId: Number(sid) }) });
+    await api(`/api/tasks/${taskId}/assign`, {
+      method: "POST",
+      body: JSON.stringify({ studentId: Number(sid) })
+    });
     await load();
     showMessage("✅ Assigned.");
   }
@@ -151,13 +168,12 @@ export default function Tasks() {
     <div className="grid gap-6">
       <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-slate-900/70 to-slate-900/20 p-6 flex items-start gap-4">
         <BoltMark className="mt-1" />
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <div className="text-3xl font-extrabold">
-            <span className="text-blue-400">Tasks</span>{" "}
-            <span className="text-warlocksGold">Board</span>
+            <span className="text-blue-400">Tasks</span> <span className="text-warlocksGold">Board</span>
           </div>
           <div className="text-slate-300 mt-1">
-            Trello-light Kanban board with comments, multi-student assignments, and a stale indicator.
+            As they say... "Many hands make light work"
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2 items-center">
@@ -181,7 +197,7 @@ export default function Tasks() {
           </div>
 
           <div className="mt-4 grid md:grid-cols-2 gap-3 items-end">
-            <div>
+            <div className="min-w-0">
               <label className="block text-sm font-semibold text-slate-200 mb-2">I am</label>
               <select
                 value={studentId}
@@ -190,17 +206,19 @@ export default function Tasks() {
               >
                 <option value="">-- Select your name (enables Join + student comments) --</option>
                 {students.map((s) => (
-                  <option key={s.id} value={s.id}>{s.full_name}</option>
+                  <option key={s.id} value={s.id}>
+                    {s.full_name}
+                  </option>
                 ))}
               </select>
-              <div className="mt-1 text-xs text-slate-400">
-                If you don’t select a name, you can still browse tasks.
-              </div>
+              <div className="mt-1 text-xs text-slate-400">If you don’t select a name, you can still browse tasks.</div>
             </div>
 
-            <div>
+            <div className="min-w-0">
               {msg && (
-                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-200">{msg}</div>
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-200">
+                  {msg}
+                </div>
               )}
             </div>
           </div>
@@ -210,7 +228,7 @@ export default function Tasks() {
       {mentorMode && (
         <Card title="Mentor: Create a task">
           <form onSubmit={mentorCreate} className="grid md:grid-cols-3 gap-3 items-end">
-            <div className="md:col-span-2">
+            <div className="md:col-span-2 min-w-0">
               <label className="block text-sm font-semibold text-slate-200 mb-2">Title</label>
               <input
                 value={newTitle}
@@ -219,19 +237,21 @@ export default function Tasks() {
                 placeholder="Short, actionable task..."
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="block text-sm font-semibold text-slate-200 mb-2">Subteam</label>
               <select
                 value={newSubteam}
                 onChange={(e) => setNewSubteam(e.target.value)}
                 className="w-full rounded-xl bg-slate-950 border-slate-800 text-white"
               >
-                {SUBTEAMS.filter(s => s !== "All").map(s => (
-                  <option key={s} value={s}>{s}</option>
+                {SUBTEAMS.filter((s) => s !== "All").map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
                 ))}
               </select>
             </div>
-            <div className="md:col-span-3">
+            <div className="md:col-span-3 min-w-0">
               <label className="block text-sm font-semibold text-slate-200 mb-2">Short notes / link (optional)</label>
               <textarea
                 value={newDesc}
@@ -247,18 +267,26 @@ export default function Tasks() {
         </Card>
       )}
 
-      <div className="grid xl:grid-cols-4 gap-4 items-start">
+      {/* ✅ Board layout fix:
+          - Use horizontal scroll instead of squeezing 4 columns
+          - Give columns a fixed width (Trello-style)
+          - Prevent grid item overflow with min-w-0 / overflow-hidden */}
+      <div className="flex gap-4 overflow-x-auto pb-4">
         {COLUMNS.map((col) => (
-          <div key={col.key} className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
+          <div
+            key={col.key}
+            className="w-[340px] flex-shrink-0 rounded-2xl border border-slate-800 bg-slate-900/40 p-3 flex flex-col min-w-0"
+          >
             <div className="px-2 py-1 flex items-center gap-2">
               <div className="font-extrabold">{col.title}</div>
               <div className="text-xs text-slate-400">({(grouped[col.key] || []).length})</div>
             </div>
 
-            <div className="grid gap-3 mt-2">
+            {/* Column scroll area */}
+            <div className="grid gap-3 mt-2 overflow-y-auto max-h-[70vh] min-w-0">
               {(grouped[col.key] || []).map((t) => (
-                <div key={t.id} className="rounded-2xl bg-slate-950/60 border border-slate-800 p-4">
-                  <div className="flex items-start gap-2">
+                <div key={t.id} className="rounded-2xl bg-slate-950/60 border border-slate-800 p-4 min-w-0 overflow-hidden">
+                  <div className="flex items-start gap-2 min-w-0">
                     <div className={`px-2 py-1 rounded-lg border text-xs font-bold ${pillStyle(t.status)}`}>
                       {t.status.replaceAll("_", " ")}
                     </div>
@@ -267,69 +295,83 @@ export default function Tasks() {
                         STALE
                       </div>
                     )}
-                    <div className="ml-auto text-xs text-slate-400">
+                    <div className="ml-auto text-xs text-slate-400 whitespace-nowrap">
                       Updated: <span className="text-slate-200">{formatDateTimeEastern(t.last_activity_at)}</span>
                     </div>
                   </div>
 
-                  <div className="mt-2 font-extrabold text-white">{t.title}</div>
+                  <div className="mt-2 font-extrabold text-white break-words">{t.title}</div>
                   <div className="text-xs text-slate-400 mt-1">
                     <span className="text-slate-200 font-semibold">Subteam:</span> {t.subteam}
                   </div>
 
                   {t.description && (
-                    <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap break-words">
-                      {t.description}
-                    </div>
+                    <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap break-words">{t.description}</div>
                   )}
 
-                  <div className="mt-3">
+                  <div className="mt-3 min-w-0">
                     <div className="text-xs text-slate-400 mb-1">Assigned</div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-2 max-w-full">
                       {(t.assignees || []).length === 0 && <span className="text-slate-400 text-sm">—</span>}
                       {(t.assignees || []).map((a) => (
-                        <span key={a.student_id} className="px-2 py-1 rounded-lg bg-slate-950 border border-slate-800 text-sm">
+                        <span
+                          key={a.student_id}
+                          className="px-2 py-1 rounded-lg bg-slate-950 border border-slate-800 text-sm break-words"
+                        >
                           {a.full_name}
                         </span>
                       ))}
                     </div>
                   </div>
 
-                  <div className="mt-4 flex flex-wrap gap-2">
+                  <div className="mt-4 flex flex-wrap gap-2 max-w-full">
                     {!isAssigned(t) ? (
-                      <button onClick={() => join(t.id)} className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold">
+                      <button
+                        onClick={() => join(t.id)}
+                        className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
+                      >
                         Join
                       </button>
                     ) : (
-                      <button onClick={() => leave(t.id)} className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold">
+                      <button
+                        onClick={() => leave(t.id)}
+                        className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
+                      >
                         Leave
                       </button>
                     )}
 
-                    <button onClick={() => openComments(t.id)} className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold">
+                    <button
+                      onClick={() => openComments(t.id)}
+                      className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
+                    >
                       Comments
                     </button>
 
                     {mentorMode && (
-                      <div className="ml-auto flex items-center gap-2">
+                      <div className="ml-auto flex items-center gap-2 flex-wrap max-w-full">
                         <select
                           defaultValue=""
                           onChange={(e) => mentorAssign(t.id, e.target.value)}
-                          className="rounded-xl bg-slate-950 border-slate-800 text-white text-sm"
+                          className="rounded-xl bg-slate-950 border-slate-800 text-white text-sm max-w-full"
                         >
                           <option value="">Assign…</option>
-                          {students.map(s => (
-                            <option key={s.id} value={s.id}>{s.full_name}</option>
+                          {students.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.full_name}
+                            </option>
                           ))}
                         </select>
 
                         <select
                           value={t.status}
                           onChange={(e) => mentorMove(t.id, e.target.value)}
-                          className="rounded-xl bg-slate-950 border-slate-800 text-white text-sm"
+                          className="rounded-xl bg-slate-950 border-slate-800 text-white text-sm max-w-full"
                         >
-                          {COLUMNS.map(c => (
-                            <option key={c.key} value={c.key}>{c.title}</option>
+                          {COLUMNS.map((c) => (
+                            <option key={c.key} value={c.key}>
+                              {c.title}
+                            </option>
                           ))}
                         </select>
                       </div>
@@ -339,7 +381,7 @@ export default function Tasks() {
               ))}
 
               {(grouped[col.key] || []).length === 0 && (
-                <div className="rounded-xl bg-slate-950/40 border border-slate-800 p-4 text-slate-400 text-sm">
+                <div className="rounded-xl bg-slate-950/40 border border-slate-800 p-4 text-slate-400 text-sm min-w-0 overflow-hidden">
                   No tasks here.
                 </div>
               )}
@@ -350,20 +392,23 @@ export default function Tasks() {
 
       {openTaskId && (
         <div className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl">
-            <div className="px-5 py-4 border-b border-slate-800 flex items-center gap-3">
+          <div className="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl min-w-0">
+            <div className="px-5 py-4 border-b border-slate-800 flex items-center gap-3 min-w-0">
               <div className="font-extrabold text-white">Task Comments</div>
-              <button onClick={() => setOpenTaskId(null)} className="ml-auto px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800 font-semibold">
+              <button
+                onClick={() => setOpenTaskId(null)}
+                className="ml-auto px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800 font-semibold"
+              >
                 Close
               </button>
             </div>
 
-            <div className="p-5 grid gap-4">
-              <div className="max-h-[320px] overflow-auto rounded-xl border border-slate-800 bg-slate-900/30 p-4">
+            <div className="p-5 grid gap-4 min-w-0">
+              <div className="max-h-[320px] overflow-auto rounded-xl border border-slate-800 bg-slate-900/30 p-4 min-w-0">
                 {comments.length === 0 && <div className="text-slate-400">No comments yet.</div>}
-                <div className="grid gap-3">
+                <div className="grid gap-3 min-w-0">
                   {comments.map((c) => (
-                    <div key={c.id} className="rounded-xl bg-slate-950/60 border border-slate-800 p-3">
+                    <div key={c.id} className="rounded-xl bg-slate-950/60 border border-slate-800 p-3 min-w-0 overflow-hidden">
                       <div className="text-xs text-slate-400">
                         <span className="text-slate-200 font-semibold">{c.author_label}</span>{" "}
                         <span className="text-slate-500">({c.author_type})</span> • {formatDateTimeEastern(c.created_at)}
@@ -374,11 +419,13 @@ export default function Tasks() {
                 </div>
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <div className="text-xs text-slate-400 mb-2">
                   Posting as:{" "}
                   <span className="text-slate-200 font-semibold">
-                    {studentId ? (students.find(s => String(s.id) === String(studentId))?.full_name || "Student") : "Mentor"}
+                    {studentId
+                      ? students.find((s) => String(s.id) === String(studentId))?.full_name || "Student"
+                      : "Mentor"}
                   </span>
                 </div>
                 <textarea
