@@ -62,7 +62,7 @@ export default function Tasks() {
       setStudents(students);
       setMsg("");
     } catch (e) {
-      setMsg(e.message);
+      setMsg(e?.message || "Failed to load.");
     }
   }
 
@@ -88,22 +88,32 @@ export default function Tasks() {
 
   async function join(taskId) {
     if (!studentId) return showMessage("Select your name first.");
-    await api(`/api/tasks/${taskId}/join`, {
-      method: "POST",
-      body: JSON.stringify({ studentId: Number(studentId) })
-    });
-    await load();
-    showMessage("✅ Joined.");
+    try {
+      await api(`/api/tasks/${taskId}/join`, {
+        method: "POST",
+        body: JSON.stringify({ studentId: Number(studentId) })
+      });
+      await load();
+      showMessage("✅ Joined.");
+    } catch (err) {
+      console.error("Join failed:", err);
+      showMessage(`❌ Join failed: ${err?.message || "unknown error"}`);
+    }
   }
 
   async function leave(taskId) {
     if (!studentId) return showMessage("Select your name first.");
-    await api(`/api/tasks/${taskId}/leave`, {
-      method: "POST",
-      body: JSON.stringify({ studentId: Number(studentId) })
-    });
-    await load();
-    showMessage("✅ Left.");
+    try {
+      await api(`/api/tasks/${taskId}/leave`, {
+        method: "POST",
+        body: JSON.stringify({ studentId: Number(studentId) })
+      });
+      await load();
+      showMessage("✅ Left.");
+    } catch (err) {
+      console.error("Leave failed:", err);
+      showMessage(`❌ Leave failed: ${err?.message || "unknown error"}`);
+    }
   }
 
   async function openComments(taskId) {
@@ -121,47 +131,84 @@ export default function Tasks() {
       ? { studentId: Number(studentId), comment: commentText.trim() }
       : { authorType: "mentor", authorLabel: "Mentor", comment: commentText.trim() };
 
-    await api(`/api/tasks/${openTaskId}/comments`, {
-      method: "POST",
-      body: JSON.stringify(payload)
-    });
-    const { comments } = await api(`/api/tasks/${openTaskId}/comments`);
-    setComments(comments);
-    setCommentText("");
-    await load();
+    try {
+      await api(`/api/tasks/${openTaskId}/comments`, {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      const { comments } = await api(`/api/tasks/${openTaskId}/comments`);
+      setComments(comments);
+      setCommentText("");
+      await load();
+    } catch (err) {
+      console.error("Comment failed:", err);
+      showMessage(`❌ Comment failed: ${err?.message || "unknown error"}`);
+    }
   }
 
   async function mentorCreate(e) {
     e.preventDefault();
     if (!newTitle.trim()) return showMessage("Need a title.");
-    await api("/api/tasks", {
-      method: "POST",
-      body: JSON.stringify({
-        title: newTitle.trim(),
-        subteam: newSubteam,
-        description: newDesc.trim(),
-        status: "todo"
-      })
-    });
-    setNewTitle("");
-    setNewDesc("");
-    await load();
-    showMessage("✅ Created.");
+
+    try {
+      await api("/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({
+          title: newTitle.trim(),
+          subteam: newSubteam,
+          description: newDesc.trim(),
+          status: "todo"
+        })
+      });
+      setNewTitle("");
+      setNewDesc("");
+      await load();
+      showMessage("✅ Created.");
+    } catch (err) {
+      console.error("Create failed:", err);
+      showMessage(`❌ Create failed: ${err?.message || "unknown error"}`);
+    }
   }
 
   async function mentorMove(taskId, status) {
-    await api(`/api/tasks/${taskId}`, { method: "PATCH", body: JSON.stringify({ status }) });
-    await load();
+    try {
+      await api(`/api/tasks/${taskId}`, { method: "PATCH", body: JSON.stringify({ status }) });
+      await load();
+    } catch (err) {
+      console.error("Move failed:", err);
+      showMessage(`❌ Move failed: ${err?.message || "unknown error"}`);
+    }
   }
 
   async function mentorAssign(taskId, sid) {
     if (!sid) return;
-    await api(`/api/tasks/${taskId}/assign`, {
-      method: "POST",
-      body: JSON.stringify({ studentId: Number(sid) })
-    });
-    await load();
-    showMessage("✅ Assigned.");
+    try {
+      await api(`/api/tasks/${taskId}/assign`, {
+        method: "POST",
+        body: JSON.stringify({ studentId: Number(sid) })
+      });
+      await load();
+      showMessage("✅ Assigned.");
+    } catch (err) {
+      console.error("Assign failed:", err);
+      showMessage(`❌ Assign failed: ${err?.message || "unknown error"}`);
+    }
+  }
+
+  async function mentorRemove(taskId, student) {
+    // Uses the existing "leave" endpoint, but sends the chosen student's id.
+    // Adds stopPropagation + try/catch so clicks aren't swallowed and errors surface.
+    try {
+      await api(`/api/tasks/${taskId}/leave`, {
+        method: "POST",
+        body: JSON.stringify({ studentId: Number(student.student_id) })
+      });
+      await load();
+      showMessage(`✅ Removed ${student.full_name}`);
+    } catch (err) {
+      console.error("Remove failed:", err);
+      showMessage(`❌ Remove failed: ${err?.message || "unknown error"}`);
+    }
   }
 
   return (
@@ -172,9 +219,7 @@ export default function Tasks() {
           <div className="text-3xl font-extrabold">
             <span className="text-blue-400">Tasks</span> <span className="text-warlocksGold">Board</span>
           </div>
-          <div className="text-slate-300 mt-1">
-            As they say... "Many hands make light work"
-          </div>
+          <div className="text-slate-300 mt-1">As they say... "Many hands make light work"</div>
 
           <div className="mt-4 flex flex-wrap gap-2 items-center">
             <div className="text-xs text-slate-300 mr-2 font-semibold">Filter:</div>
@@ -267,10 +312,7 @@ export default function Tasks() {
         </Card>
       )}
 
-      {/* ✅ Board layout fix:
-          - Use horizontal scroll instead of squeezing 4 columns
-          - Give columns a fixed width (Trello-style)
-          - Prevent grid item overflow with min-w-0 / overflow-hidden */}
+      {/* Board layout fix: horizontal scroll Trello-style */}
       <div className="flex gap-4 overflow-x-auto pb-4">
         {COLUMNS.map((col) => (
           <div
@@ -282,10 +324,12 @@ export default function Tasks() {
               <div className="text-xs text-slate-400">({(grouped[col.key] || []).length})</div>
             </div>
 
-            {/* Column scroll area */}
             <div className="grid gap-3 mt-2 overflow-y-auto max-h-[70vh] min-w-0">
               {(grouped[col.key] || []).map((t) => (
-                <div key={t.id} className="rounded-2xl bg-slate-950/60 border border-slate-800 p-4 min-w-0 overflow-hidden">
+                <div
+                  key={t.id}
+                  className="rounded-2xl bg-slate-950/60 border border-slate-800 p-4 min-w-0 overflow-hidden"
+                >
                   <div className="flex items-start gap-2 min-w-0">
                     <div className={`px-2 py-1 rounded-lg border text-xs font-bold ${pillStyle(t.status)}`}>
                       {t.status.replaceAll("_", " ")}
@@ -312,25 +356,26 @@ export default function Tasks() {
                   <div className="mt-3 min-w-0">
                     <div className="text-xs text-slate-400 mb-1">Assigned</div>
                     <div className="flex flex-wrap gap-2 max-w-full">
+                      {(t.assignees || []).length === 0 && <span className="text-slate-400 text-sm">—</span>}
+
                       {(t.assignees || []).map((a) => (
-                        <span key={a.student_id}
+                        <span
+                          key={a.student_id}
                           className="px-2 py-1 rounded-lg bg-slate-950 border border-slate-800 text-sm inline-flex items-center gap-2"
                         >
                           <span className="break-words">{a.full_name}</span>
-                      
+
                           {mentorMode && (
                             <button
                               type="button"
                               title="Remove from task"
-                              onClick={async () => {
-                                await api(`/api/tasks/${t.id}/leave`, {
-                                  method: "POST",
-                                  body: JSON.stringify({ studentId: Number(a.student_id) })
-                                });
-                                await load();
-                                showMessage(`✅ Removed ${a.full_name}`);
+                              className="ml-1 inline-flex items-center justify-center w-5 h-5 rounded-md border border-slate-700 text-slate-200 hover:bg-slate-900/60 pointer-events-auto"
+                              onClick={async (e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                showMessage(`Removing ${a.full_name}…`);
+                                await mentorRemove(t.id, a);
                               }}
-                              className="ml-1 inline-flex items-center justify-center w-5 h-5 rounded-md border border-slate-700 text-slate-200 hover:bg-slate-900/60"
                             >
                               ×
                             </button>
@@ -424,7 +469,10 @@ export default function Tasks() {
                 {comments.length === 0 && <div className="text-slate-400">No comments yet.</div>}
                 <div className="grid gap-3 min-w-0">
                   {comments.map((c) => (
-                    <div key={c.id} className="rounded-xl bg-slate-950/60 border border-slate-800 p-3 min-w-0 overflow-hidden">
+                    <div
+                      key={c.id}
+                      className="rounded-xl bg-slate-950/60 border border-slate-800 p-3 min-w-0 overflow-hidden"
+                    >
                       <div className="text-xs text-slate-400">
                         <span className="text-slate-200 font-semibold">{c.author_label}</span>{" "}
                         <span className="text-slate-500">({c.author_type})</span> • {formatDateTimeEastern(c.created_at)}
@@ -451,7 +499,10 @@ export default function Tasks() {
                   placeholder="Add a short note, link, or what you tried..."
                 />
                 <div className="mt-3 flex justify-end">
-                  <button onClick={postComment} className="px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 transition font-bold">
+                  <button
+                    onClick={postComment}
+                    className="px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 transition font-bold"
+                  >
                     Post Comment
                   </button>
                 </div>
