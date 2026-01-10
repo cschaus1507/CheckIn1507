@@ -6,6 +6,16 @@ import { formatDateEastern, formatTimeEastern } from "../time.js";
 
 const SUBTEAMS = ["Build", "Programming", "Electrical", "CAD/CAM", "Imagery & Outreach"];
 
+// ✅ Eastern-safe "YYYY-MM-DD" (America/New_York)
+function todayISOEastern() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date()); // en-CA -> YYYY-MM-DD
+}
+
 export default function StudentUI() {
   const [students, setStudents] = useState([]);
 
@@ -21,7 +31,11 @@ export default function StudentUI() {
   const [status, setStatus] = useState("not_clocked_in");
   const [msg, setMsg] = useState("");
 
-  const dateLabel = useMemo(() => formatDateEastern(), []);
+  // ✅ Keep an Eastern "today" value in state so it updates if kiosk stays open
+  const [todayISO, setTodayISO] = useState(() => todayISOEastern());
+
+  const dateLabel = useMemo(() => formatDateEastern(todayISO), [todayISO]);
+
   const isSelected = !!studentId;
 
   const clockedInAt = session?.clock_in_at ? formatTimeEastern(session.clock_in_at) : "—";
@@ -50,6 +64,14 @@ export default function StudentUI() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  // ✅ Update "today" every minute (handles midnight rollover in Eastern)
+  useEffect(() => {
+    const tick = () => setTodayISO(todayISOEastern());
+    tick();
+    const id = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
   // Load roster + tasks list
   useEffect(() => {
     (async () => {
@@ -58,7 +80,7 @@ export default function StudentUI() {
         setStudents(students);
         setTasks(tasks);
       } catch (e) {
-        showMessage(e.message);
+        showMessage(e?.message || "Failed to load roster/tasks.");
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -72,24 +94,42 @@ export default function StudentUI() {
     if (subteam) localStorage.setItem("warlocks_subteam", subteam);
   }, [subteam]);
 
+  async function loadTodaySession(sid) {
+    const { session, status } = await api(`/api/student/today/${sid}`);
+    setSession(session);
+    setStatus(status);
+    setWorkingOn(session?.working_on ?? "");
+    if (!subteam) setSubteam(session?.subteam ?? "");
+    setMsg("");
+  }
+
   // Load today's session when a student is selected
   useEffect(() => {
     if (!studentId) return;
 
     (async () => {
       try {
-        const { session, status } = await api(`/api/student/today/${studentId}`);
-        setSession(session);
-        setStatus(status);
-        setWorkingOn(session?.working_on ?? "");
-        if (!subteam) setSubteam(session?.subteam ?? "");
-        setMsg("");
+        await loadTodaySession(studentId);
       } catch (e) {
-        showMessage(e.message);
+        showMessage(e?.message || "Failed to load session.");
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [studentId]);
+
+  // ✅ If the day changes while a student is selected, refresh their "today" session
+  useEffect(() => {
+    if (!studentId) return;
+
+    (async () => {
+      try {
+        await loadTodaySession(studentId);
+      } catch {
+        // don’t spam errors at midnight; silent refresh is fine
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todayISO]);
 
   async function syncUpdate(next = {}) {
     if (!studentId) return;
@@ -105,7 +145,7 @@ export default function StudentUI() {
       setSession(session);
       setStatus(status);
     } catch (e) {
-      showMessage(e.message);
+      showMessage(e?.message || "Update failed.");
     }
   }
 
@@ -125,7 +165,7 @@ export default function StudentUI() {
       showMessage("✅ Clocked in. Next student!");
       resetForNextStudent();
     } catch (e) {
-      showMessage(e.message);
+      showMessage(e?.message || "Clock-in failed.");
     }
   }
 
@@ -140,7 +180,7 @@ export default function StudentUI() {
       showMessage("✅ Clocked out. Next student!");
       resetForNextStudent();
     } catch (e) {
-      showMessage(e.message);
+      showMessage(e?.message || "Clock-out failed.");
     }
   }
 
@@ -161,7 +201,7 @@ export default function StudentUI() {
       setStatus(status);
       showMessage(!current ? "✅ Noted." : "✅ Cleared.");
     } catch (e) {
-      showMessage(e.message);
+      showMessage(e?.message || "Request failed.");
     }
   }
 
