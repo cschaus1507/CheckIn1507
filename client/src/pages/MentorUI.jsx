@@ -5,11 +5,38 @@ import BoltMark from "../components/BoltMark.jsx";
 import { api } from "../api.js";
 import { formatDateEastern, formatTimeEastern } from "../time.js";
 
-function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+// ✅ Eastern-safe "YYYY-MM-DD" (America/New_York)
+function todayISOEastern() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+
+  const y = parts.find(p => p.type === "year")?.value;
+  const m = parts.find(p => p.type === "month")?.value;
+  const d = parts.find(p => p.type === "day")?.value;
+
+  return `${y}-${m}-${d}`;
 }
 
-function toTime(dt) { return formatTimeEastern(dt); }
+// ✅ Subtract N days in Eastern and return "YYYY-MM-DD"
+function isoEasternDaysAgo(daysAgo) {
+  // Use noon UTC to avoid DST edge weirdness, then format into Eastern date parts.
+  const dt = new Date();
+  dt.setUTCDate(dt.getUTCDate() - daysAgo);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(dt); // en-CA gives YYYY-MM-DD
+}
+
+function toTime(dt) {
+  return formatTimeEastern(dt);
+}
 
 function downloadCSV(filename, rows) {
   const esc = (v) => `"${String(v ?? "").replaceAll('"', '""')}"`;
@@ -28,28 +55,36 @@ export default function MentorUI() {
   const [tab, setTab] = useState("status"); // status | report
   const [msg, setMsg] = useState("");
 
-  const date = useMemo(() => todayISO(), []);
+  // ✅ Keep mentor key in state so data fetch waits and refreshes after entry
+  const [mentorKey, setMentorKey] = useState(() => sessionStorage.getItem("mentorKey") || "");
+
+  // ✅ Eastern "today"
+  const date = useMemo(() => todayISOEastern(), []);
+
   const [rows, setRows] = useState([]);
 
-  const [start, setStart] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 14);
-    return d.toISOString().slice(0, 10);
-  });
-  const [end, setEnd] = useState(() => todayISO());
+  const [start, setStart] = useState(() => isoEasternDaysAgo(14));
+  const [end, setEnd] = useState(() => todayISOEastern());
   const [reportRows, setReportRows] = useState([]);
 
-  
-// Access key prompt (stored only for this browser session)
-useEffect(() => {
-  const existing = sessionStorage.getItem("mentorKey");
-  if (!existing) {
+  // Access key prompt (stored only for this browser session)
+  useEffect(() => {
+    const existing = sessionStorage.getItem("mentorKey");
+    if (existing) {
+      setMentorKey(existing);
+      return;
+    }
     const entered = window.prompt("Enter Mentor Access Key");
-    if (entered) sessionStorage.setItem("mentorKey", entered);
-  }
-}, []);
+    if (entered) {
+      sessionStorage.setItem("mentorKey", entered);
+      setMentorKey(entered);
+    }
+  }, []);
 
-useEffect(() => {
+  useEffect(() => {
+    // ✅ If mentor key is required and missing, don't fetch yet.
+    if (!mentorKey) return;
+
     (async () => {
       try {
         if (tab === "status") {
@@ -61,10 +96,10 @@ useEffect(() => {
         }
         setMsg("");
       } catch (e) {
-        setMsg(e.message);
+        setMsg(e?.message || "Request failed.");
       }
     })();
-  }, [tab, date, start, end]);
+  }, [tab, date, start, end, mentorKey]);
 
   const clockedIn = rows.filter(r => r.clock_in_at && !r.clock_out_at);
   const clockedOut = rows.filter(r => r.clock_in_at && r.clock_out_at);
@@ -90,7 +125,9 @@ useEffect(() => {
             <button
               onClick={() => setTab("status")}
               className={`px-3 py-2 rounded-xl text-sm font-bold border ${
-                tab === "status" ? "bg-blue-600 border-blue-500" : "bg-slate-950 border-slate-800 hover:bg-slate-900/40"
+                tab === "status"
+                  ? "bg-blue-600 border-blue-500"
+                  : "bg-slate-950 border-slate-800 hover:bg-slate-900/40"
               }`}
             >
               Current Status
@@ -98,7 +135,9 @@ useEffect(() => {
             <button
               onClick={() => setTab("report")}
               className={`px-3 py-2 rounded-xl text-sm font-bold border ${
-                tab === "report" ? "bg-blue-600 border-blue-500" : "bg-slate-950 border-slate-800 hover:bg-slate-900/40"
+                tab === "report"
+                  ? "bg-blue-600 border-blue-500"
+                  : "bg-slate-950 border-slate-800 hover:bg-slate-900/40"
               }`}
             >
               Attendance Reports
@@ -112,7 +151,9 @@ useEffect(() => {
       </div>
 
       {msg && (
-        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-200">{msg}</div>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-200">
+          {msg}
+        </div>
       )}
 
       {tab === "status" && (
@@ -144,7 +185,9 @@ useEffect(() => {
                 {needHelp.map(r => (
                   <div key={r.student_id} className="rounded-xl bg-slate-950/60 border border-slate-800 p-3">
                     <div className="font-bold">{r.full_name}</div>
-                    <div className="text-xs text-slate-400">{r.subteam || "—"} • clicked {toTime(r.need_help_at)}</div>
+                    <div className="text-xs text-slate-400">
+                      {r.subteam || "—"} • clicked {toTime(r.need_help_at)}
+                    </div>
                     <div className="text-sm text-slate-200 mt-1">{r.working_on || ""}</div>
                     <Link className="text-blue-300 hover:text-blue-200 font-semibold text-sm" to={`/mentor/student/${r.student_id}`}>
                       View student
@@ -160,7 +203,9 @@ useEffect(() => {
                 {needTask.map(r => (
                   <div key={r.student_id} className="rounded-xl bg-slate-950/60 border border-slate-800 p-3">
                     <div className="font-bold">{r.full_name}</div>
-                    <div className="text-xs text-slate-400">{r.subteam || "—"} • clicked {toTime(r.need_task_at)}</div>
+                    <div className="text-xs text-slate-400">
+                      {r.subteam || "—"} • clicked {toTime(r.need_task_at)}
+                    </div>
                     <div className="text-sm text-slate-200 mt-1">{r.working_on || ""}</div>
                     <Link className="text-blue-300 hover:text-blue-200 font-semibold text-sm" to={`/mentor/student/${r.student_id}`}>
                       View student
@@ -180,9 +225,13 @@ useEffect(() => {
                   state === "IN" ? "bg-blue-600 border-blue-500" :
                   state === "OUT" ? "bg-slate-700 border-slate-500" :
                   "bg-slate-950 border-slate-800";
+
                 return (
-                  <Link key={r.student_id} to={`/mentor/student/${r.student_id}`}
-                    className="rounded-2xl bg-slate-950/60 border border-slate-800 p-4 hover:bg-slate-900/40 transition">
+                  <Link
+                    key={r.student_id}
+                    to={`/mentor/student/${r.student_id}`}
+                    className="rounded-2xl bg-slate-950/60 border border-slate-800 p-4 hover:bg-slate-900/40 transition"
+                  >
                     <div className="flex items-start gap-3">
                       <div className={`px-2 py-1 rounded-lg border text-xs font-bold ${badge}`}>{state}</div>
                       <div className="flex-1">
@@ -190,12 +239,21 @@ useEffect(() => {
                         <div className="text-xs text-slate-400">{r.subteam || "—"}</div>
                         <div className="text-sm text-slate-200 mt-2 line-clamp-2">{r.working_on || ""}</div>
                         <div className="text-xs text-slate-400 mt-2">
-                          In: <span className="text-white">{toTime(r.clock_in_at)}</span> • Out: <span className="text-white">{toTime(r.clock_out_at)}</span>
+                          In: <span className="text-white">{toTime(r.clock_in_at)}</span> • Out:{" "}
+                          <span className="text-white">{toTime(r.clock_out_at)}</span>
                         </div>
                         {(r.need_help || r.need_task) && (
                           <div className="mt-2 text-xs">
-                            {r.need_help && <span className="mr-2 px-2 py-1 rounded-lg bg-warlocksGold text-slate-950 font-bold">HELP</span>}
-                            {r.need_task && <span className="px-2 py-1 rounded-lg bg-warlocksGold text-slate-950 font-bold">TASK</span>}
+                            {r.need_help && (
+                              <span className="mr-2 px-2 py-1 rounded-lg bg-warlocksGold text-slate-950 font-bold">
+                                HELP
+                              </span>
+                            )}
+                            {r.need_task && (
+                              <span className="px-2 py-1 rounded-lg bg-warlocksGold text-slate-950 font-bold">
+                                TASK
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>
@@ -214,11 +272,19 @@ useEffect(() => {
           right={
             <div className="flex items-center gap-2 text-sm">
               <span className="text-slate-300">Start</span>
-              <input type="date" value={start} onChange={(e)=>setStart(e.target.value)}
-                className="rounded-xl bg-slate-950 border-slate-800 text-white" />
+              <input
+                type="date"
+                value={start}
+                onChange={(e) => setStart(e.target.value)}
+                className="rounded-xl bg-slate-950 border-slate-800 text-white"
+              />
               <span className="text-slate-300">End</span>
-              <input type="date" value={end} onChange={(e)=>setEnd(e.target.value)}
-                className="rounded-xl bg-slate-950 border-slate-800 text-white" />
+              <input
+                type="date"
+                value={end}
+                onChange={(e) => setEnd(e.target.value)}
+                className="rounded-xl bg-slate-950 border-slate-800 text-white"
+              />
               <button
                 onClick={() => reportRows.length && downloadCSV(`warlocks1507_attendance_${start}_to_${end}.csv`, reportRows)}
                 className="ml-2 px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
@@ -254,7 +320,9 @@ useEffect(() => {
                   </tr>
                 ))}
                 {reportRows.length === 0 && (
-                  <tr><td colSpan="5" className="py-4 text-slate-400">No data.</td></tr>
+                  <tr>
+                    <td colSpan="5" className="py-4 text-slate-400">No data.</td>
+                  </tr>
                 )}
               </tbody>
             </table>
