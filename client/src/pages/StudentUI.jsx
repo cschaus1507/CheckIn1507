@@ -171,7 +171,7 @@ export default function StudentUI() {
         <BoltMark className="mt-1" />
         <div className="flex-1">
           <div className="text-3xl font-extrabold">
-            <span className="text-warlocksGold">Student</span>{" "}
+            <span className="text-warlocksGold">1507 Student</span>{" "}
             <span className="text-blue-400">Check-In</span>
           </div>
           <div className="text-slate-300 mt-1">
