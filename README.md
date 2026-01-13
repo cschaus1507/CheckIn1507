@@ -6,7 +6,6 @@
 - Pick Subteam
 - Buttons: **I need help** / **I need something to do**
 - Field: what you're currently working on
-- Blue & Yellow Warlocks aesthetic with subtle lightning accents
 
 **Mentor UI (different URL path)**
 - **/mentor** dashboard:
@@ -68,7 +67,7 @@ Env var:
 - `VITE_API_URL=<your server URL>`
 
 ## Access keys (privacy safeguard)
-Set these on the **server** (Render Web Service env vars):
+Set these on the **server** (Web Service env vars):
 - `MENTOR_KEY` — required for /mentor and all /api/mentor calls
 - `MANAGER_KEY` — required for /manage and all /api/admin calls
 
