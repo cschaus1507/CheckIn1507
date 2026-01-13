@@ -45,10 +45,6 @@ cp .env.example .env
 # set VITE_API_URL (local server: http://localhost:3001)
 npm install
 npm run dev
-```
-
-Student UI: http://localhost:5173/  
-Mentor UI: http://localhost:5173/mentor
 
 ---
 
