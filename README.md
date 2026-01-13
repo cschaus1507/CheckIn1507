@@ -15,7 +15,7 @@
   - student cards (click to view subteam + current work + recent sessions)
   - attendance reports (date range) with CSV export
 
-> This build has **no authentication** (as requested). Anyone with the links can submit/view.
+> This build has **no authentication** - Anyone with the links can submit/view.
 
 ---
 
@@ -52,8 +52,7 @@ Mentor UI: http://localhost:5173/mentor
 
 ---
 
-## Deploy (Render quick notes)
-
+## Deploy 
 ### Server (Web Service)
 - Root Directory: `server`
 - Build: `npm install`
@@ -72,15 +71,6 @@ Env vars:
 Env var:
 - `VITE_API_URL=<your server URL>`
 
-### Different URL for mentors
-Simplest: use the built-in route:
-- `https://your-client.onrender.com/mentor`
-
-If you truly want a *separate* URL (ex: mentor-warlocks.onrender.com):
-- Create a second Render Static Site pointing at the same `client/` root
-- (Optional) set a Redirect Rule to `/mentor` as the default.
-
-
 ## Access keys (privacy safeguard)
 Set these on the **server** (Render Web Service env vars):
 - `MENTOR_KEY` — required for /mentor and all /api/mentor calls
@@ -88,9 +78,8 @@ Set these on the **server** (Render Web Service env vars):
 
 Mentors/managers will be prompted for the key in the browser. Keys are stored in `sessionStorage` (clears when the browser is closed).
 
-
 ## Tasks Board (/tasks)
-- Kanban stages: To Do → In Progress → Road Blocked → Done
+- Stages: To Do → In Progress → Road Blocked → Done
 - Filter chips by subteam
 - Students can join/leave any task and post comments/notes.
 - Mentors (with `MENTOR_KEY`) can create tasks, assign students, and move task stages.
