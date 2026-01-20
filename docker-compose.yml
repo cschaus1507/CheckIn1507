@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: checkin1507
+      POSTGRES_USER: checkin
+      POSTGRES_PASSWORD: checkinpass
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgres://checkin:checkinpass@db:5432/checkin1507
+      DATABASE_SSL: "false"
+    command: ["node", "scripts/initdb.js"]
+    working_dir: /app/server
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - db
+      - migrate
+    environment:
+      PORT: 3001
+      DATABASE_URL: postgres://checkin:checkinpass@db:5432/checkin1507
+      DATABASE_SSL: "false"
+      # Set these in a .env file or directly here before deploying.
+      MENTOR_KEY: "change_me"
+      MANAGER_KEY: "change_me"
+      # If you serve the client from the same container, CORS can be left blank.
+      CLIENT_ORIGIN: ""
+    ports:
+      - "3001:3001"
+
+volumes:
+  db_data:

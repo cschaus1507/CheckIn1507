@@ -45,6 +45,32 @@ cp .env.example .env
 npm install
 npm run dev
 
+```
+
+---
+
+## Docker (recommended for non-Render hosting)
+
+This repo includes a simple Docker setup that runs:
+- Postgres
+- the Express API (and serves the built React client from the same container)
+
+### Quick start
+
+```bash
+docker compose up --build
+```
+
+Then open:
+- App UI: http://localhost:3001
+- API health: http://localhost:3001/health
+
+### Configure keys
+
+Edit the `app` service in `docker-compose.yml` (or use a `.env` file) and set:
+- `MENTOR_KEY`
+- `MANAGER_KEY`
+
 ---
 
 ## Deploy 
@@ -78,6 +104,7 @@ Mentors/managers will be prompted for the key in the browser. Keys are stored in
 - Filter chips by subteam
 - Students can join/leave any task and post comments/notes.
 - Mentors (with `MENTOR_KEY`) can create tasks, assign students, and move task stages.
+- Mentors can **Archive** a task to remove it from the main board without deleting history (comments/assignments). Archived tasks are hidden by default; mentors can toggle **Show archived**.
 - Stale indicator: tasks with no activity for 3+ days.
 
 ## Timezone
