@@ -1,53 +1,38 @@
-import fs from "node:fs";
-import path from "node:path";
+import fs from "fs";
+import path from "path";
 import pg from "pg";
+import { fileURLToPath } from "url";
 
-const { Pool } = pg;
+const { Client } = pg;
 
-function splitSql(sql) {
-  // Remove single-line comments first
-  const noComments = sql.replace(/--.*$/gm, "");
-
-  return noComments
-    .split(";")
-    .map(s => s.trim())
-    .filter(Boolean);
-}
-
-async function runFile(pool, relPath) {
-  const filePath = path.resolve(relPath);
-  const sql = fs.readFileSync(filePath, "utf8");
-  const statements = splitSql(sql);
-
-  for (const stmt of statements) {
-    await pool.query(stmt);
-  }
-  console.log(`✅ Ran ${relPath} (${statements.length} statements)`);
-}
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 async function main() {
   if (!process.env.DATABASE_URL) {
-    throw new Error("DATABASE_URL not set");
+    console.error("ERROR: DATABASE_URL is not set");
+    process.exit(1);
   }
 
-  const pool = new Pool({
+  const client = new Client({
     connectionString: process.env.DATABASE_URL,
-    ssl: process.env.DATABASE_SSL === "true" ? { rejectUnauthorized: false } : false
+    ssl: { rejectUnauthorized: false },
   });
 
-  try {
-    await runFile(pool, "./schema.sql");
+  const schemaPath = path.join(__dirname, "..", "schema.sql");
+  const schemaSql = fs.readFileSync(schemaPath, "utf8");
 
-    // Optional seed (only if you want it):
-    // await runFile(pool, "./seed.sql");
+  console.log("Connecting to database...");
+  await client.connect();
 
-    console.log("🎉 Database initialized.");
-  } finally {
-    await pool.end();
-  }
+  console.log("Running schema.sql...");
+  await client.query(schemaSql);
+
+  console.log("✅ Database initialized successfully");
+  await client.end();
 }
 
-main().catch(err => {
-  console.error("❌ initdb failed:", err);
+main().catch((err) => {
+  console.error("❌ Init failed:", err);
   process.exit(1);
 });
