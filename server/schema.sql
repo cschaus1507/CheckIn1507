@@ -44,6 +44,23 @@ create index if not exists task_assignments_active
 on task_assignments(task_id, student_id)
 where unassigned_at is null;
 
+-- Cleanup: if duplicates exist for active assignments, close out extras
+with dups as (
+  select
+    id,
+    row_number() over (
+      partition by task_id, student_id
+      order by assigned_at desc, id desc
+    ) as rn
+  from task_assignments
+  where unassigned_at is null
+)
+update task_assignments ta
+   set unassigned_at = now()
+from dups
+where ta.id = dups.id
+  and dups.rn > 1;
+
 -- ✅ Prevent duplicates: only ONE active assignment per (task_id, student_id)
 create unique index if not exists task_assignments_active_unique
 on task_assignments(task_id, student_id)
