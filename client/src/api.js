@@ -1,4 +1,7 @@
-export const API_BASE = import.meta.env.VITE_API_URL;
+// If VITE_API_URL is not provided, default to same-origin.
+// This is important for the "single-container" Docker/Render deployment where
+// the server serves the built client and the API lives on the same host.
+export const API_BASE = import.meta.env.VITE_API_URL || "";
 
 function withAccessKey(path, headers) {
   // Mentor routes

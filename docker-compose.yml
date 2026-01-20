@@ -5,8 +5,10 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: checkin1507
+    # Auto-initialize schema on first boot (only runs when the volume is empty)
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./server/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     ports:
       - "5432:5432"
 
@@ -22,20 +24,13 @@ services:
       # Set these in a .env file or directly here
       # MENTOR_KEY: yourmentor
       # MANAGER_KEY: yourmanager
-      CLIENT_ORIGIN: http://localhost:5173
+      # When the server serves the client, CORS isn't needed.
+      # If you run the client separately, set this to that origin.
+      # CLIENT_ORIGIN: http://localhost:8080
     depends_on:
       - db
     ports:
       - "3001:3001"
-
-  client:
-    build:
-      context: ./client
-      dockerfile: Dockerfile
-    depends_on:
-      - server
-    ports:
-      - "8080:80"
 
 volumes:
   pgdata:

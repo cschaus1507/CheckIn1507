@@ -35,6 +35,30 @@ cp .env.example .env
 # set DATABASE_URL
 npm install
 npm run dev
+
+---
+
+## Docker (local, all-in-one)
+
+This repo includes a Docker/Compose setup that:
+- boots Postgres,
+- auto-runs `server/schema.sql` on first database creation, and
+- builds the React client and serves it from the Node server (single origin).
+
+```bash
+docker compose up --build
+```
+
+Then open:
+- App: `http://localhost:3001/`
+- Mentor: `http://localhost:3001/mentor`
+- Manage roster: `http://localhost:3001/manage`
+
+**Reset database:**
+
+```bash
+docker compose down -v
+```
 ```
 
 ### 3) Client

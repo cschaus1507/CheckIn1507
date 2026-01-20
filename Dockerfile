@@ -7,11 +7,18 @@
 FROM node:20-bullseye-slim AS client-build
 WORKDIR /app/client
 
-# Force public registry + reduce noise
-ENV npm_config_registry=https://registry.npmjs.org/         npm_config_audit=false         npm_config_fund=false         npm_config_progress=false
+# Force public registry + reduce noise.
+# Also force devDependencies to install in this build stage (Vite lives in devDependencies).
+# Some CI/CD environments set npm production flags that would otherwise omit dev deps.
+ENV NODE_ENV=development \
+    npm_config_registry=https://registry.npmjs.org/ \
+    npm_config_audit=false \
+    npm_config_fund=false \
+    npm_config_progress=false \
+    npm_config_production=false
 
 COPY client/package*.json ./
-RUN npm install --no-audit --no-fund
+RUN npm install --include=dev --no-audit --no-fund
 
 COPY client/ ./
 RUN npm run build
