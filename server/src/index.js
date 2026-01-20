@@ -1,11 +1,15 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import path from "path";
+import { fileURLToPath } from "url";
+import fs from "fs";
 import { pool } from "./db.js";
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const EASTERN_TZ = "America/New_York";
 
@@ -27,19 +31,6 @@ app.use(
 );
 
 app.get("/health", (_, res) => res.json({ ok: true }));
-
-// In production (or when SERVE_CLIENT=true), serve the built React app from /client/dist
-// so Docker can run as a simple 2-container stack (app + Postgres).
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-if (process.env.NODE_ENV === "production" || process.env.SERVE_CLIENT === "true") {
-  const clientDist = path.resolve(__dirname, "../../client/dist");
-  app.use(express.static(clientDist));
-  // SPA fallback
-  app.get(["/", "/mentor", "/tasks", "/manage", "/mentor/student/:id"], (_req, res) => {
-    res.sendFile(path.join(clientDist, "index.html"));
-  });
-}
 
 // --- Roster for dropdown ---
 app.get("/api/students", async (_req, res) => {
@@ -375,7 +366,6 @@ app.get("/api/tasks", async (req, res) => {
   try {
     const subteam = (req.query.subteam || "").trim();
     const status = (req.query.status || "").trim();
-    const includeArchived = String(req.query.includeArchived || "").toLowerCase() === "true";
 
     const filters = [];
     const params = [];
@@ -388,10 +378,6 @@ app.get("/api/tasks", async (req, res) => {
     if (status) {
       filters.push(`t.status = $${i++}`);
       params.push(status);
-    }
-
-    if (!includeArchived) {
-      filters.push("t.archived_at is null");
     }
 
     const where = filters.length ? `where ${filters.join(" and ")}` : "";
@@ -415,7 +401,6 @@ app.get("/api/tasks", async (req, res) => {
         t.subteam,
         t.status,
         t.description,
-        t.archived_at,
         t.created_at,
         t.updated_at,
         greatest(
@@ -442,7 +427,6 @@ app.get("/api/tasks", async (req, res) => {
       ) assignees on true
       ${where}
       order by
-        (t.archived_at is not null) asc,
         case t.status
           when 'todo' then 1
           when 'in_progress' then 2
@@ -485,11 +469,6 @@ app.post("/api/tasks/:id/comments", async (req, res) => {
     const { authorType, authorLabel, studentId, comment } = req.body || {};
     if (!comment || !String(comment).trim()) return res.status(400).json({ error: "Missing comment" });
 
-    // Prevent students from commenting on archived tasks (mentors can still leave a final note).
-    const tr = await pool.query(`select archived_at from tasks where id=$1`, [taskId]);
-    if (tr.rowCount === 0) return res.status(404).json({ error: "Task not found" });
-    if (tr.rows[0].archived_at && studentId) return res.status(400).json({ error: "Task is archived" });
-
     let finalType = authorType;
     let finalLabel = authorLabel;
 
@@ -525,10 +504,6 @@ app.post("/api/tasks/:id/join", async (req, res) => {
     const taskId = Number(req.params.id);
     const { studentId } = req.body || {};
     if (!studentId) return res.status(400).json({ error: "Missing studentId" });
-
-    const tr = await pool.query(`select archived_at from tasks where id=$1`, [taskId]);
-    if (tr.rowCount === 0) return res.status(404).json({ error: "Task not found" });
-    if (tr.rows[0].archived_at) return res.status(400).json({ error: "Task is archived" });
 
     await assertStudentActive(studentId);
 
@@ -634,10 +609,6 @@ app.post("/api/tasks/:id/assign", requireKey("MENTOR_KEY"), async (req, res) => 
     const { studentId } = req.body || {};
     if (!studentId) return res.status(400).json({ error: "Missing studentId" });
 
-    const tr = await pool.query(`select archived_at from tasks where id=$1`, [taskId]);
-    if (tr.rowCount === 0) return res.status(404).json({ error: "Task not found" });
-    if (tr.rows[0].archived_at) return res.status(400).json({ error: "Task is archived" });
-
     await assertStudentActive(studentId);
 
     await pool.query(
@@ -654,35 +625,6 @@ app.post("/api/tasks/:id/assign", requireKey("MENTOR_KEY"), async (req, res) => 
     res.json({ ok: true });
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message || "Server error" });
-  }
-});
-
-// Mentor-only: archive / unarchive a task (hides it from the main board without deleting history)
-app.post("/api/tasks/:id/archive", requireKey("MENTOR_KEY"), async (req, res) => {
-  try {
-    const taskId = Number(req.params.id);
-    const r = await pool.query(
-      `update tasks set archived_at = now(), updated_at = now() where id=$1 returning *`,
-      [taskId]
-    );
-    if (r.rowCount === 0) return res.status(404).json({ error: "Task not found" });
-    res.json({ task: r.rows[0] });
-  } catch (e) {
-    res.status(500).json({ error: e.message || "Server error" });
-  }
-});
-
-app.post("/api/tasks/:id/unarchive", requireKey("MENTOR_KEY"), async (req, res) => {
-  try {
-    const taskId = Number(req.params.id);
-    const r = await pool.query(
-      `update tasks set archived_at = null, updated_at = now() where id=$1 returning *`,
-      [taskId]
-    );
-    if (r.rowCount === 0) return res.status(404).json({ error: "Task not found" });
-    res.json({ task: r.rows[0] });
-  } catch (e) {
-    res.status(500).json({ error: e.message || "Server error" });
   }
 });
 
@@ -748,6 +690,28 @@ app.patch("/api/admin/students/:id", requireKey("MANAGER_KEY"), async (req, res)
   if (r.rowCount === 0) return res.status(404).json({ error: "Student not found" });
   res.json({ student: r.rows[0] });
 });
+
+
+// ---- Serve React client in production / Docker ----
+// Supports two layouts:
+// 1) Docker build copies client dist into server/public
+// 2) Local monorepo serves ../../client/dist after client is built
+const serveClient =
+  process.env.SERVE_CLIENT === "true" || process.env.NODE_ENV === "production";
+
+if (serveClient) {
+  const publicDir = path.join(__dirname, "../public");
+  const distDir = path.join(__dirname, "../../client/dist");
+  const staticDir = fs.existsSync(publicDir) ? publicDir : distDir;
+
+  app.use(express.static(staticDir));
+
+  // SPA fallback: allow React Router routes like /manage to work on refresh
+  app.get("*", (req, res) => {
+    if (req.path.startsWith("/api")) return res.status(404).end();
+    res.sendFile(path.join(staticDir, "index.html"));
+  });
+}
 
 
 const port = process.env.PORT || 3001;

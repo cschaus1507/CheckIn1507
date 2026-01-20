@@ -1,21 +1,12 @@
-# Multi-stage Dockerfile for the React frontend.
-# Produces a small nginx image that serves the built client and supports React Router routes like /manage.
-
-FROM node:20-alpine AS build
+# Client container for Adam-style 3-container setup (nginx serving Vite build)
+FROM node:22-alpine AS build
 WORKDIR /app
-
+RUN npm config set registry https://registry.npmjs.org/
 COPY package*.json ./
-RUN npm ci
-
+RUN npm install
 COPY . .
 RUN npm run build
 
 FROM nginx:alpine
-
-# Copy built static files
 COPY --from=build /app/dist /usr/share/nginx/html
-
-# Override default nginx config to support SPA routing (try_files fallback)
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-EXPOSE 80

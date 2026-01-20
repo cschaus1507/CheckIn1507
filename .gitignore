@@ -1,22 +1,11 @@
-# dependencies
-node_modules/
-**/node_modules/
 
-# builds
-dist/
-**/dist/
+# Dependencies
+node_modules
+**/node_modules
 
-# env
+# Build
+client/dist
+
+# Env
 .env
 .env.*
-
-# logs
-npm-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# OS
-.DS_Store
-
-# misc
-*.zip

@@ -35,7 +35,6 @@ export default function Tasks() {
   const [msg, setMsg] = useState("");
 
   const mentorMode = useMemo(() => !!sessionStorage.getItem("mentorKey"), []);
-  const [showArchived, setShowArchived] = useState(false);
 
   // Mentor create
   const [newTitle, setNewTitle] = useState("");
@@ -55,13 +54,8 @@ export default function Tasks() {
 
   async function load() {
     try {
-      const q = new URLSearchParams();
-      if (subteam !== "All") q.set("subteam", subteam);
-      if (mentorMode && showArchived) q.set("includeArchived", "true");
-      const path = q.toString() ? `/api/tasks?${q.toString()}` : "/api/tasks";
-
       const [{ tasks }, { students }] = await Promise.all([
-        api(path),
+        api(subteam === "All" ? "/api/tasks" : `/api/tasks?subteam=${encodeURIComponent(subteam)}`),
         api("/api/students")
       ]);
       setTasks(tasks);
@@ -75,29 +69,7 @@ export default function Tasks() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subteam, showArchived]);
-
-  async function mentorArchive(taskId) {
-    try {
-      await api(`/api/tasks/${taskId}/archive`, { method: "POST" });
-      await load();
-      showMessage("🗄️ Archived.");
-    } catch (err) {
-      console.error("Archive failed:", err);
-      showMessage(`❌ Archive failed: ${err?.message || "unknown error"}`);
-    }
-  }
-
-  async function mentorUnarchive(taskId) {
-    try {
-      await api(`/api/tasks/${taskId}/unarchive`, { method: "POST" });
-      await load();
-      showMessage("✅ Restored.");
-    } catch (err) {
-      console.error("Unarchive failed:", err);
-      showMessage(`❌ Restore failed: ${err?.message || "unknown error"}`);
-    }
-  }
+  }, [subteam]);
 
   useEffect(() => {
     if (studentId) localStorage.setItem("warlocks_studentId", studentId);
@@ -267,20 +239,6 @@ export default function Tasks() {
                 </button>
               );
             })}
-
-            {mentorMode && (
-              <button
-                onClick={() => setShowArchived((v) => !v)}
-                className={`ml-auto px-3 py-2 rounded-xl border text-sm font-semibold transition ${
-                  showArchived
-                    ? "bg-warlocksGold text-slate-950 border-yellow-300"
-                    : "bg-slate-950 border-slate-800 text-slate-200 hover:bg-slate-900/40"
-                }`}
-                title="Show archived tasks (mentor only)"
-              >
-                {showArchived ? "Hide archived" : "Show archived"}
-              </button>
-            )}
           </div>
 
           <div className="mt-4 grid md:grid-cols-2 gap-3 items-end">
@@ -376,11 +334,6 @@ export default function Tasks() {
                     <div className={`px-2 py-1 rounded-lg border text-xs font-bold ${pillStyle(t.status)}`}>
                       {t.status.replaceAll("_", " ")}
                     </div>
-                    {t.archived_at && (
-                      <div className="px-2 py-1 rounded-lg bg-slate-900 text-slate-200 text-xs font-extrabold border border-slate-700">
-                        ARCHIVED
-                      </div>
-                    )}
                     {t.is_stale && (
                       <div className="px-2 py-1 rounded-lg bg-warlocksGold text-slate-950 text-xs font-extrabold">
                         STALE
@@ -482,26 +435,6 @@ export default function Tasks() {
                             </option>
                           ))}
                         </select>
-
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            if (t.archived_at) {
-                              await mentorUnarchive(t.id);
-                            } else {
-                              const ok = window.confirm("Archive this task? It will disappear from the main board but keep its history.");
-                              if (ok) await mentorArchive(t.id);
-                            }
-                          }}
-                          className={`px-3 py-2 rounded-xl border text-sm font-bold transition ${
-                            t.archived_at
-                              ? "bg-emerald-950 border-emerald-800/60 text-emerald-200 hover:bg-emerald-900/40"
-                              : "bg-slate-950 border-slate-800 text-slate-200 hover:bg-slate-900/40"
-                          }`}
-                          title={t.archived_at ? "Restore task" : "Archive task"}
-                        >
-                          {t.archived_at ? "Restore" : "Archive"}
-                        </button>
                       </div>
                     )}
                   </div>

@@ -1,6 +1,4 @@
-// If VITE_API_URL isn't set, default to same-origin.
-// This enables simple Docker setups where the Express server serves the built React app.
-export const API_BASE = import.meta.env.VITE_API_URL || "";
+export const API_BASE = import.meta.env.VITE_API_URL;
 
 function withAccessKey(path, headers) {
   // Mentor routes
