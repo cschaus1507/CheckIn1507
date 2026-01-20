@@ -1,27 +1,40 @@
-# Render-compatible root Dockerfile
-# Builds client with Vite, then runs the Node/Express API server and serves the built SPA.
+# Root Dockerfile (Render-compatible)
+# - Builds the Vite/React client
+# - Installs production deps for the Node/Express server
+# - Serves the built SPA from the server so client-side routes like /manage work on refresh
 
-FROM node:22-alpine AS client-build
+# ---------- 1) Build the React client ----------
+FROM node:20-bullseye-slim AS client-build
 WORKDIR /app/client
 
-# Use public npm registry
-RUN npm config set registry https://registry.npmjs.org/
+# Force public registry + reduce noise
+ENV npm_config_registry=https://registry.npmjs.org/         npm_config_audit=false         npm_config_fund=false         npm_config_progress=false
 
 COPY client/package*.json ./
-RUN npm install
+RUN npm install --no-audit --no-fund
+
 COPY client/ ./
 RUN npm run build
 
-FROM node:22-alpine AS server-deps
-WORKDIR /app/server
-RUN npm config set registry https://registry.npmjs.org/
-COPY server/package*.json ./
-RUN npm install --omit=dev
 
-FROM node:22-alpine AS runtime
+# ---------- 2) Install server deps (prod-only) ----------
+FROM node:20-bullseye-slim AS server-deps
+WORKDIR /app/server
+
+ENV npm_config_registry=https://registry.npmjs.org/         npm_config_audit=false         npm_config_fund=false         npm_config_progress=false
+
+COPY server/package*.json ./
+RUN npm install --omit=dev --no-audit --no-fund
+
+
+# ---------- 3) Runtime ----------
+FROM node:20-bullseye-slim AS runtime
 WORKDIR /app
+
 ENV NODE_ENV=production
+# Render provides PORT; default for local runs
 ENV PORT=10000
+# Tell server to serve client build (server/src/index.js already supports this)
 ENV SERVE_CLIENT=true
 
 # Server code + deps
