@@ -367,4 +367,199 @@ export default function Tasks() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className={["text-xs px-2 py-1 rounded-full border", pillStyle(t.status)].jo
+                        <span className={["text-xs px-2 py-1 rounded-full border", pillStyle(t.status)].join(" ")}>
+                          {COLUMNS.find((c) => c.key === t.status)?.title || t.status}
+                        </span>
+                        <span className="text-xs px-2 py-1 rounded-full border border-slate-700 bg-slate-900/40">
+                          {t.subteam}
+                        </span>
+                        {t.is_stale && (
+                          <span className="text-xs px-2 py-1 rounded-full border border-amber-700/60 bg-amber-950/30 text-amber-200">
+                            Stale
+                          </span>
+                        )}
+                        {t.archived && (
+                          <span className="text-xs px-2 py-1 rounded-full border border-slate-700 bg-slate-900/40 text-slate-200">
+                            Archived
+                          </span>
+                        )}
+                      </div>
+
+                      <h3 className="font-black text-lg mt-2 break-words">{t.title}</h3>
+
+                      {t.description ? (
+                        <p className="text-slate-300 mt-2 whitespace-pre-wrap break-words">{t.description}</p>
+                      ) : null}
+
+                      <p className="text-xs text-slate-400 mt-3">
+                        Updated: {formatDateTimeEastern(t.updated_at)}
+                      </p>
+
+                      <div className="mt-3">
+                        <div className="text-xs font-semibold text-slate-300 mb-2">Assignees</div>
+                        <div className="flex flex-wrap gap-2">
+                          {(t.assignees || []).length ? (
+                            (t.assignees || []).map((a) => (
+                              <span
+                                key={a.student_id}
+                                className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full border border-slate-700 bg-slate-900/40"
+                              >
+                                <span className="truncate max-w-[220px]">{a.full_name}</span>
+
+                                {mentorMode && (
+                                  <button
+                                    className="w-5 h-5 rounded-full border border-slate-700 bg-slate-950 hover:bg-slate-900 text-slate-100 leading-none"
+                                    title="Remove student"
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      showMessage(`Removing ${a.full_name}…`);
+                                      await mentorRemove(t.id, a);
+                                    }}
+                                  >
+                                    ×
+                                  </button>
+                                )}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-xs text-slate-400">None</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-2 items-end">
+                      <button
+                        onClick={() => openComments(t.id)}
+                        className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
+                      >
+                        Comments
+                      </button>
+
+                      {mentorMode && (
+                        <select
+                          value={t.status}
+                          onChange={(e) => mentorMove(t.id, e.target.value)}
+                          className="rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-sm"
+                        >
+                          {COLUMNS.map((c) => (
+                            <option key={c.key} value={c.key}>
+                              {c.title}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+
+                      {mentorMode && t.status === "done" && (
+                        <>
+                          {!t.archived ? (
+                            <button
+                              onClick={() => archiveTask(t.id)}
+                              className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
+                            >
+                              Archive
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => unarchiveTask(t.id)}
+                              className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
+                            >
+                              Unarchive
+                            </button>
+                          )}
+                        </>
+                      )}
+
+                      {!isAssigned(t) ? (
+                        <button
+                          onClick={() => join(t.id)}
+                          className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
+                        >
+                          Join
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => leave(t.id)}
+                          className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
+                        >
+                          Leave
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {!grouped[col.key]?.length ? (
+                <div className="text-sm text-slate-400 border border-dashed border-slate-800 rounded-2xl p-4">
+                  No tasks.
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Comments Modal */}
+      {openTaskId && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-950 p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-black">Comments</h3>
+                <p className="text-sm text-slate-400 mt-1">
+                  {studentId ? "Posting as selected student." : "Posting as Mentor."}
+                </p>
+              </div>
+              <button
+                onClick={() => setOpenTaskId(null)}
+                className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 max-h-[50vh] overflow-auto grid gap-3 pr-1">
+              {comments.length ? (
+                comments.map((c) => (
+                  <div key={c.id} className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-bold text-slate-100">
+                        {c.author_label}{" "}
+                        <span className="text-xs font-semibold text-slate-400">({c.author_type})</span>
+                      </div>
+                      <div className="text-xs text-slate-400">{formatDateTimeEastern(c.created_at)}</div>
+                    </div>
+                    <div className="text-slate-200 mt-2 whitespace-pre-wrap break-words">{c.comment}</div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-sm text-slate-400 border border-dashed border-slate-800 rounded-2xl p-4">
+                  No comments yet.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 grid gap-3">
+              <textarea
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                className="w-full rounded-2xl bg-slate-950/60 border border-slate-800 px-3 py-3 text-slate-100 min-h-[90px]"
+                placeholder="Write a comment…"
+              />
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={postComment}
+                  className="px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 font-black text-white"
+                >
+                  Post Comment
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
