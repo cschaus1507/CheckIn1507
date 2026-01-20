@@ -1,34 +1,43 @@
 import express from "express";
 import cors from "cors";
+import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
-import pool from "./db.js";
+import fs from "fs";
+import { pool } from "./db.js";
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const EASTERN_TZ = "America/New_York";
 
 const app = express();
-app.use(express.json());
-
-// CORS (dev convenience); when deployed as single-origin, this is effectively irrelevant
 app.use(
-  cors({
-    origin: true,
-    credentials: true
+  express.json({
+    limit: "1mb"
   })
 );
+
+app.use(
+  cors({
+    origin: true
+  })
+);
+
+/* =======================
+   Auth Helpers
+   ======================= */
 
 function requireKey(envName) {
   return (req, res, next) => {
     const expected = process.env[envName];
-    if (!expected) return res.status(500).json({ error: `${envName} not set` });
+    if (!expected) return res.status(500).json({ error: `${envName} not configured` });
 
-    const provided =
-      req.headers["x-app-key"] ||
-      req.headers["x-api-key"] ||
-      req.query.key ||
-      (req.body && req.body.key);
+    const provided = req.headers["x-access-key"];
+    if (provided !== expected) return res.status(403).json({ error: "Access denied" });
 
-    if (String(provided || "") !== String(expected)) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
     next();
   };
 }
@@ -47,7 +56,9 @@ async function assertStudentActive(studentId) {
   }
 }
 
-/* -------------------- Students -------------------- */
+/* =======================
+   Students
+   ======================= */
 
 app.get("/api/students", async (req, res) => {
   try {
@@ -68,12 +79,16 @@ app.post("/api/students", requireKey("MANAGER_KEY"), async (req, res) => {
   try {
     const { full_name, subteam } = req.body || {};
     if (!full_name || !String(full_name).trim()) return res.status(400).json({ error: "Missing full_name" });
-    if (!subteam || !String(subteam).trim()) return res.status(400).json({ error: "Missing subteam" });
 
     const r = await pool.query(
-      `insert into students (full_name, subteam) values ($1,$2) returning id, full_name, subteam, is_active, created_at`,
-      [String(full_name).trim(), String(subteam).trim()]
+      `
+      insert into students (full_name, subteam)
+      values ($1, $2)
+      returning id, full_name, subteam, is_active, created_at
+      `,
+      [String(full_name).trim(), subteam ? String(subteam).trim() : null]
     );
+
     res.json({ student: r.rows[0] });
   } catch (e) {
     res.status(500).json({ error: e.message || "Server error" });
@@ -109,60 +124,14 @@ app.patch("/api/students/:id", requireKey("MANAGER_KEY"), async (req, res) => {
   }
 });
 
-/* -------------------- Checkins -------------------- */
-
-app.post("/api/checkin", async (req, res) => {
-  try {
-    const { studentId, role } = req.body || {};
-    if (!studentId) return res.status(400).json({ error: "Missing studentId" });
-
-    await assertStudentActive(studentId);
-
-    const r = await pool.query(
-      `
-      insert into checkins (student_id, role)
-      values ($1, $2)
-      returning id, student_id, role, created_at
-      `,
-      [Number(studentId), role === "mentor" ? "mentor" : "student"]
-    );
-
-    res.json({ checkin: r.rows[0] });
-  } catch (e) {
-    res.status(e.status || 500).json({ error: e.message || "Server error" });
-  }
-});
-
-app.get("/api/checkins/today", async (req, res) => {
-  try {
-    const r = await pool.query(
-      `
-      select c.id, c.student_id, s.full_name, s.subteam, c.role, c.created_at
-      from checkins c
-      join students s on s.id = c.student_id
-      where c.created_at >= date_trunc('day', now() at time zone 'America/New_York') at time zone 'America/New_York'
-      order by c.created_at desc
-      `
-    );
-    res.json({ checkins: r.rows });
-  } catch (e) {
-    res.status(500).json({ error: e.message || "Server error" });
-  }
-});
-
-/* -------------------- Tasks -------------------- */
-
-/*
-   TASKS:
-   - Mentors can create and move tasks through columns.
-   - Students can join/leave tasks and post comments when they select their name
-*/
+/* =======================
+   Tasks (Trello-light)
+   ======================= */
 
 app.get("/api/tasks", async (req, res) => {
   try {
     const subteam = (req.query.subteam || "").trim();
     const status = (req.query.status || "").trim();
-
     const includeArchived = String(req.query.includeArchived || "").toLowerCase() === "true";
 
     const filters = [];
@@ -205,6 +174,11 @@ app.get("/api/tasks", async (req, res) => {
         t.created_at,
         t.updated_at,
         t.archived,
+        greatest(
+          t.updated_at,
+          coalesce(lc.last_comment_at, 'epoch'::timestamptz),
+          coalesce(la.last_assigned_at, 'epoch'::timestamptz)
+        ) as last_activity_at,
         (
           greatest(
             t.updated_at,
@@ -242,19 +216,133 @@ app.get("/api/tasks", async (req, res) => {
   }
 });
 
-app.post("/api/tasks", requireKey("MENTOR_KEY"), async (req, res) => {
+app.get("/api/tasks/:id/comments", async (req, res) => {
   try {
-    const { title, subteam, description } = req.body || {};
-    if (!title || !String(title).trim()) return res.status(400).json({ error: "Missing title" });
-    if (!subteam || !String(subteam).trim()) return res.status(400).json({ error: "Missing subteam" });
+    const taskId = Number(req.params.id);
+    const r = await pool.query(
+      `
+      select id, task_id, author_type, author_label, comment, created_at
+      from task_comments
+      where task_id=$1
+      order by created_at asc
+      `,
+      [taskId]
+    );
+    res.json({ comments: r.rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message || "Server error" });
+  }
+});
+
+app.post("/api/tasks/:id/comments", async (req, res) => {
+  try {
+    const taskId = Number(req.params.id);
+    const { studentId, comment, author_type, author_label } = req.body || {};
+    if (!comment || !String(comment).trim()) return res.status(400).json({ error: "Missing comment" });
+
+    let finalType = "mentor";
+    let finalLabel = "Mentor";
+
+    if (studentId) {
+      await assertStudentActive(studentId);
+      const s = await pool.query(`select full_name from students where id=$1`, [Number(studentId)]);
+      finalType = "student";
+      finalLabel = s.rows[0]?.full_name || "Student";
+    } else {
+      finalType = author_type === "student" ? "student" : "mentor";
+      finalLabel = author_label && String(author_label).trim() ? String(author_label).trim() : "Mentor";
+    }
 
     const r = await pool.query(
       `
-      insert into tasks (title, subteam, description)
-      values ($1,$2,$3)
+      insert into task_comments (task_id, author_type, author_label, comment)
+      values ($1, $2, $3, $4)
+      returning id, task_id, author_type, author_label, comment, created_at
+      `,
+      [taskId, finalType, finalLabel, String(comment).trim()]
+    );
+
+    await pool.query(`update tasks set updated_at=now() where id=$1`, [taskId]);
+
+    res.json({ comment: r.rows[0] });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || "Server error" });
+  }
+});
+
+/* JOIN / LEAVE
+   Prevent duplicate active assignments by using partial unique index:
+   ON CONFLICT (task_id, student_id) WHERE unassigned_at IS NULL DO NOTHING
+*/
+
+app.post("/api/tasks/:id/join", async (req, res) => {
+  try {
+    const taskId = Number(req.params.id);
+    const { studentId } = req.body || {};
+    if (!studentId) return res.status(400).json({ error: "Missing studentId" });
+
+    await assertStudentActive(studentId);
+
+    await pool.query(
+      `
+      insert into task_assignments (task_id, student_id)
+      values ($1, $2)
+      on conflict (task_id, student_id) where unassigned_at is null do nothing
+      `,
+      [taskId, studentId]
+    );
+
+    await pool.query(`update tasks set updated_at=now() where id=$1`, [taskId]);
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || "Server error" });
+  }
+});
+
+app.post("/api/tasks/:id/leave", async (req, res) => {
+  try {
+    const taskId = Number(req.params.id);
+    const { studentId } = req.body || {};
+    if (!studentId) return res.status(400).json({ error: "Missing studentId" });
+
+    await pool.query(
+      `
+      update task_assignments
+         set unassigned_at = now()
+       where task_id = $1
+         and student_id = $2
+         and unassigned_at is null
+      `,
+      [taskId, studentId]
+    );
+
+    await pool.query(`update tasks set updated_at=now() where id=$1`, [taskId]);
+
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || "Server error" });
+  }
+});
+
+/* Mentor Create / Update / Assign */
+
+app.post("/api/tasks", requireKey("MENTOR_KEY"), async (req, res) => {
+  try {
+    const { title, subteam, description, status } = req.body || {};
+    if (!title || !String(title).trim()) return res.status(400).json({ error: "Missing title" });
+    if (!subteam || !String(subteam).trim()) return res.status(400).json({ error: "Missing subteam" });
+
+    const okStatus = new Set(["todo", "in_progress", "blocked", "done"]);
+    const finalStatus = okStatus.has(status) ? status : "todo";
+
+    const r = await pool.query(
+      `
+      insert into tasks (title, subteam, description, status)
+      values ($1,$2,$3,$4)
       returning id, title, subteam, status, description, archived, created_at, updated_at
       `,
-      [String(title).trim(), String(subteam).trim(), description ? String(description).trim() : ""]
+      [String(title).trim(), String(subteam).trim(), description ? String(description).trim() : "", finalStatus]
     );
 
     res.json({ task: r.rows[0] });
@@ -298,6 +386,8 @@ app.patch("/api/tasks/:id", requireKey("MENTOR_KEY"), async (req, res) => {
   }
 });
 
+/* Archive / Unarchive (mentor only) */
+
 app.post("/api/tasks/:id/archive", requireKey("MENTOR_KEY"), async (req, res) => {
   try {
     const taskId = Number(req.params.id);
@@ -312,119 +402,6 @@ app.post("/api/tasks/:id/unarchive", requireKey("MENTOR_KEY"), async (req, res) 
   try {
     const taskId = Number(req.params.id);
     await pool.query(`update tasks set archived = false, updated_at = now() where id = $1`, [taskId]);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message || "Server error" });
-  }
-});
-
-// Optional hard delete (manager only)
-app.delete("/api/tasks/:id", requireKey("MANAGER_KEY"), async (req, res) => {
-  try {
-    const taskId = Number(req.params.id);
-    await pool.query(`delete from tasks where id = $1`, [taskId]);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message || "Server error" });
-  }
-});
-
-app.get("/api/tasks/:id/comments", async (req, res) => {
-  try {
-    const taskId = Number(req.params.id);
-    const r = await pool.query(
-      `
-      select id, task_id, author_type, author_label, comment, created_at
-      from task_comments
-      where task_id=$1
-      order by created_at asc
-      `,
-      [taskId]
-    );
-    res.json({ comments: r.rows });
-  } catch (e) {
-    res.status(500).json({ error: e.message || "Server error" });
-  }
-});
-
-app.post("/api/tasks/:id/comments", async (req, res) => {
-  try {
-    const taskId = Number(req.params.id);
-    const { author_type, author_label, studentId, comment } = req.body || {};
-    if (!comment || !String(comment).trim()) return res.status(400).json({ error: "Missing comment" });
-
-    let finalType = String(author_type || "").trim().toLowerCase();
-    let finalLabel = author_label;
-
-    if (studentId) {
-      await assertStudentActive(studentId);
-      const s = await pool.query(`select full_name from students where id=$1`, [Number(studentId)]);
-      finalType = "student";
-      finalLabel = s.rows[0].full_name;
-    } else {
-      finalType = finalType === "mentor" ? "mentor" : "mentor";
-      finalLabel = finalLabel && String(finalLabel).trim() ? String(finalLabel).trim() : "Mentor";
-    }
-
-    const r = await pool.query(
-      `
-      insert into task_comments (task_id, author_type, author_label, comment)
-      values ($1, $2, $3, $4)
-      returning id, task_id, author_type, author_label, comment, created_at
-      `,
-      [taskId, finalType, finalLabel, String(comment).trim()]
-    );
-
-    await pool.query(`update tasks set updated_at=now() where id=$1`, [taskId]);
-
-    res.json({ comment: r.rows[0] });
-  } catch (e) {
-    res.status(e.status || 500).json({ error: e.message || "Server error" });
-  }
-});
-
-app.post("/api/tasks/:id/join", async (req, res) => {
-  try {
-    const taskId = Number(req.params.id);
-    const { studentId } = req.body || {};
-    if (!studentId) return res.status(400).json({ error: "Missing studentId" });
-
-    await assertStudentActive(studentId);
-
-    await pool.query(
-      `
-      insert into task_assignments (task_id, student_id)
-      values ($1, $2)
-      on conflict (task_id, student_id) where unassigned_at is null do nothing
-      `,
-      [taskId, studentId]
-    );
-
-    await pool.query(`update tasks set updated_at=now() where id=$1`, [taskId]);
-
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(e.status || 500).json({ error: e.message || "Server error" });
-  }
-});
-
-app.post("/api/tasks/:id/leave", async (req, res) => {
-  try {
-    const taskId = Number(req.params.id);
-    const { studentId } = req.body || {};
-    if (!studentId) return res.status(400).json({ error: "Missing studentId" });
-
-    await pool.query(
-      `
-      update task_assignments
-         set unassigned_at = now()
-       where task_id = $1 and student_id = $2 and unassigned_at is null
-      `,
-      [taskId, studentId]
-    );
-
-    await pool.query(`update tasks set updated_at=now() where id=$1`, [taskId]);
-
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message || "Server error" });
@@ -456,21 +433,17 @@ app.post("/api/tasks/:id/assign", requireKey("MENTOR_KEY"), async (req, res) => 
   }
 });
 
-/* -------------------- Serve Client -------------------- */
+/* =======================
+   Serve client build
+   ======================= */
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Build output is copied to server/public by the Dockerfile build step
 const publicDir = path.join(__dirname, "..", "public");
-app.use(express.static(publicDir));
-
-// SPA fallback
-app.get("*", (req, res) => {
-  res.sendFile(path.join(publicDir, "index.html"));
-});
+if (fs.existsSync(publicDir)) {
+  app.use(express.static(publicDir));
+  app.get("*", (req, res) => {
+    res.sendFile(path.join(publicDir, "index.html"));
+  });
+}
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log("Server listening on", PORT);
-});
+app.listen(PORT, () => console.log("Server listening on", PORT));
