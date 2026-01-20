@@ -57,13 +57,12 @@ export default function Tasks() {
     try {
       const base =
         subteam === "All" ? "/api/tasks" : `/api/tasks?subteam=${encodeURIComponent(subteam)}`;
-
-      const url = mentorMode && showArchived
-        ? base + (base.includes("?") ? "&" : "?") + "includeArchived=true"
-        : base;
+      const url =
+        mentorMode && showArchived
+          ? base + (base.includes("?") ? "&" : "?") + "includeArchived=true"
+          : base;
 
       const [{ tasks }, { students }] = await Promise.all([api(url), api("/api/students")]);
-
       setTasks(tasks);
       setStudents(students);
       setMsg("");
@@ -89,44 +88,7 @@ export default function Tasks() {
 
   function isAssigned(task) {
     if (!studentId) return false;
-    return (task.assignees || []).some((a) => Number(a.student_id) === Number(studentId));
-  }
-
-  async function mentorCreate(e) {
-    e.preventDefault();
-    if (!newTitle.trim()) return showMessage("Need a title.");
-
-    try {
-      await api("/api/tasks", {
-        method: "POST",
-        body: JSON.stringify({
-          title: newTitle.trim(),
-          subteam: newSubteam,
-          description: newDesc.trim(),
-          status: "todo"
-        })
-      });
-      setNewTitle("");
-      setNewDesc("");
-      await load();
-      showMessage("✅ Created.");
-    } catch (err) {
-      console.error("Create failed:", err);
-      showMessage(`❌ Create failed: ${err?.message || "unknown error"}`);
-    }
-  }
-
-  async function mentorMove(taskId, status) {
-    try {
-      await api(`/api/tasks/${taskId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status })
-      });
-      await load();
-    } catch (err) {
-      console.error("Move failed:", err);
-      showMessage(`❌ Move failed: ${err?.message || "unknown error"}`);
-    }
+    return (task.assignees || []).some((a) => String(a.student_id) === String(studentId));
   }
 
   async function join(taskId) {
@@ -169,15 +131,15 @@ export default function Tasks() {
   async function postComment() {
     if (!openTaskId) return;
     if (!commentText.trim()) return;
+
+    const payload = studentId
+      ? { studentId: Number(studentId), comment: commentText.trim() }
+      : { authorType: "mentor", authorLabel: "Mentor", comment: commentText.trim() };
+
     try {
       await api(`/api/tasks/${openTaskId}/comments`, {
         method: "POST",
-        body: JSON.stringify({
-          studentId: studentId ? Number(studentId) : null,
-          author_type: studentId ? "student" : "mentor",
-          author_label: studentId ? "" : "Mentor",
-          comment: commentText.trim()
-        })
+        body: JSON.stringify(payload)
       });
       const { comments } = await api(`/api/tasks/${openTaskId}/comments`);
       setComments(comments);
@@ -189,15 +151,63 @@ export default function Tasks() {
     }
   }
 
-  async function mentorRemove(taskId, a) {
-    // a = { student_id, full_name }
+  async function mentorCreate(e) {
+    e.preventDefault();
+    if (!newTitle.trim()) return showMessage("Need a title.");
+
+    try {
+      await api("/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({
+          title: newTitle.trim(),
+          subteam: newSubteam,
+          description: newDesc.trim(),
+          status: "todo"
+        })
+      });
+      setNewTitle("");
+      setNewDesc("");
+      await load();
+      showMessage("✅ Created.");
+    } catch (err) {
+      console.error("Create failed:", err);
+      showMessage(`❌ Create failed: ${err?.message || "unknown error"}`);
+    }
+  }
+
+  async function mentorMove(taskId, status) {
+    try {
+      await api(`/api/tasks/${taskId}`, { method: "PATCH", body: JSON.stringify({ status }) });
+      await load();
+    } catch (err) {
+      console.error("Move failed:", err);
+      showMessage(`❌ Move failed: ${err?.message || "unknown error"}`);
+    }
+  }
+
+  async function mentorAssign(taskId, sid) {
+    if (!sid) return;
+    try {
+      await api(`/api/tasks/${taskId}/assign`, {
+        method: "POST",
+        body: JSON.stringify({ studentId: Number(sid) })
+      });
+      await load();
+      showMessage("✅ Assigned.");
+    } catch (err) {
+      console.error("Assign failed:", err);
+      showMessage(`❌ Assign failed: ${err?.message || "unknown error"}`);
+    }
+  }
+
+  async function mentorRemove(taskId, student) {
     try {
       await api(`/api/tasks/${taskId}/leave`, {
         method: "POST",
-        body: JSON.stringify({ studentId: Number(a.student_id) })
+        body: JSON.stringify({ studentId: Number(student.student_id) })
       });
       await load();
-      showMessage(`✅ Removed ${a.full_name}`);
+      showMessage(`✅ Removed ${student.full_name}`);
     } catch (err) {
       console.error("Remove failed:", err);
       showMessage(`❌ Remove failed: ${err?.message || "unknown error"}`);
@@ -228,72 +238,70 @@ export default function Tasks() {
 
   return (
     <div className="grid gap-6">
-      <div className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-950/70 to-slate-900/20 p-6 flex items-start gap-4">
-        <BoltMark className="w-12 h-12 shrink-0" />
-        <div className="min-w-0">
-          <h1 className="text-2xl font-black tracking-tight">Task Board</h1>
-          <p className="text-slate-300 mt-1">
-            Students: pick your name, join tasks, leave tasks, and post comments.
-            Mentors: create tasks, move tasks, remove students, and archive Done tasks.
-          </p>
+      <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-slate-900/70 to-slate-900/20 p-6 flex items-start gap-4">
+        <BoltMark className="mt-1" />
+        <div className="flex-1 min-w-0">
+          <div className="text-3xl font-extrabold">
+            <span className="text-blue-400">Tasks</span> <span className="text-warlocksGold">Board</span>
+          </div>
+          <div className="text-slate-300 mt-1">As they say... "Many hands make light work"</div>
 
-          <div className="mt-4 flex flex-col gap-3">
-            <div className="flex flex-wrap gap-2">
-              {SUBTEAMS.map((st) => (
+          <div className="mt-4 flex flex-wrap gap-2 items-center">
+            <div className="text-xs text-slate-300 mr-2 font-semibold">Filter:</div>
+            {SUBTEAMS.map((t) => {
+              const on = subteam === t;
+              return (
                 <button
-                  key={st}
-                  onClick={() => setSubteam(st)}
-                  className={[
-                    "px-3 py-2 rounded-xl border text-sm font-semibold",
-                    st === subteam
-                      ? "bg-slate-950 border-slate-700 text-white"
-                      : "bg-slate-950/30 border-slate-800 text-slate-200 hover:bg-slate-900/40"
-                  ].join(" ")}
+                  key={t}
+                  onClick={() => setSubteam(t)}
+                  className={`px-3 py-2 rounded-xl border text-sm font-semibold transition ${
+                    on
+                      ? "bg-warlocksGold text-slate-950 border-yellow-300"
+                      : "bg-slate-950 border-slate-800 text-slate-200 hover:bg-slate-900/40"
+                  }`}
                 >
-                  {st}
+                  {t}
                 </button>
-              ))}
-            </div>
+              );
+            })}
+          </div>
 
-            <div className="flex flex-col md:flex-row gap-3 md:items-center">
-              <div className="flex-1 min-w-0">
-                <label className="block text-sm font-semibold text-slate-200 mb-2">Select your name</label>
-                <select
-                  value={studentId}
-                  onChange={(e) => setStudentId(e.target.value)}
-                  className="w-full rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-3 text-slate-100"
-                >
-                  <option value="">— Select —</option>
-                  {students
-                    .filter((s) => s.is_active)
-                    .sort((a, b) => a.full_name.localeCompare(b.full_name))
-                    .map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.full_name} ({s.subteam})
-                      </option>
-                    ))}
-                </select>
-              </div>
+          <div className="mt-4 grid md:grid-cols-2 gap-3 items-end">
+            <div className="min-w-0">
+              <label className="block text-sm font-semibold text-slate-200 mb-2">I am</label>
+              <select
+                value={studentId}
+                onChange={(e) => setStudentId(e.target.value)}
+                className="w-full rounded-xl bg-slate-950 border-slate-800 text-white"
+              >
+                <option value="">-- Select your name (enables Join + student comments) --</option>
+                {students.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.full_name}
+                  </option>
+                ))}
+              </select>
+              <div className="mt-1 text-xs text-slate-400">If you don’t select a name, you can still browse tasks.</div>
 
-              {msg && (
-                <div className="md:self-end rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-200">
-                  {msg}
-                </div>
-              )}
-            </div>
-
-            {mentorMode && (
-              <div className="flex items-center gap-3 text-sm">
-                <label className="flex items-center gap-2 cursor-pointer select-none">
+              {mentorMode && (
+                <label className="mt-3 flex items-center gap-2 text-sm text-slate-200 select-none cursor-pointer">
                   <input
                     type="checkbox"
                     checked={showArchived}
                     onChange={(e) => setShowArchived(e.target.checked)}
                   />
-                  <span>Show archived</span>
+                  Show archived
                 </label>
-              </div>
-            )}
+              )}
+            </div>
+
+            <div className="min-w-0">
+              {msg && (
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-200">
+                  {msg}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -306,72 +314,271 @@ export default function Tasks() {
               <input
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
-                className="w-full rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-3 text-slate-100"
-                placeholder="e.g. Wire the climber motor controller"
+                className="w-full rounded-xl bg-slate-950 border-slate-800 text-white"
+                placeholder="Short, actionable task..."
               />
             </div>
-
             <div className="min-w-0">
               <label className="block text-sm font-semibold text-slate-200 mb-2">Subteam</label>
               <select
                 value={newSubteam}
                 onChange={(e) => setNewSubteam(e.target.value)}
-                className="w-full rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-3 text-slate-100"
+                className="w-full rounded-xl bg-slate-950 border-slate-800 text-white"
               >
-                {SUBTEAMS.filter((s) => s !== "All").map((st) => (
-                  <option key={st} value={st}>
-                    {st}
+                {SUBTEAMS.filter((s) => s !== "All").map((s) => (
+                  <option key={s} value={s}>
+                    {s}
                   </option>
                 ))}
               </select>
             </div>
-
             <div className="md:col-span-3 min-w-0">
-              <label className="block text-sm font-semibold text-slate-200 mb-2">Description (optional)</label>
+              <label className="block text-sm font-semibold text-slate-200 mb-2">Short notes / link (optional)</label>
               <textarea
                 value={newDesc}
                 onChange={(e) => setNewDesc(e.target.value)}
-                className="w-full rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-3 text-slate-100 min-h-[90px]"
-                placeholder="Add context, steps, or links…"
+                className="w-full min-h-[80px] rounded-xl bg-slate-950 border-slate-800 text-white"
+                placeholder="Optional. Paste a link or 1–2 sentences."
               />
             </div>
-
-            <div className="md:col-span-3">
-              <button className="px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 font-black text-white">
-                Create Task
-              </button>
-            </div>
+            <button className="md:col-span-3 rounded-xl px-4 py-3 font-bold bg-blue-600 hover:bg-blue-500 transition">
+              Create Task
+            </button>
           </form>
         </Card>
       )}
 
-      <div className="grid lg:grid-cols-4 gap-4">
+      {/* Board layout fix: horizontal scroll Trello-style */}
+      <div className="flex gap-4 overflow-x-auto pb-4">
         {COLUMNS.map((col) => (
-          <div key={col.key} className="rounded-2xl border border-slate-800 bg-slate-950/30 p-3">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-black tracking-tight">{col.title}</h2>
-              <span className="text-xs px-2 py-1 rounded-full border border-slate-700 bg-slate-900/40">
-                {(grouped[col.key] || []).length}
-              </span>
+          <div
+            key={col.key}
+            className="w-[340px] flex-shrink-0 rounded-2xl border border-slate-800 bg-slate-900/40 p-3 flex flex-col min-w-0"
+          >
+            <div className="px-2 py-1 flex items-center gap-2">
+              <div className="font-extrabold">{col.title}</div>
+              <div className="text-xs text-slate-400">({(grouped[col.key] || []).length})</div>
             </div>
 
-            <div className="grid gap-3">
+            <div className="grid gap-3 mt-2 overflow-y-auto max-h-[70vh] min-w-0">
               {(grouped[col.key] || []).map((t) => (
                 <div
                   key={t.id}
-                  className={[
-                    "rounded-2xl border border-slate-800 bg-slate-950/50 p-4 hover:bg-slate-900/40 transition",
-                    t.is_stale ? "ring-2 ring-yellow-700/60" : ""
-                  ].join(" ")}
+                  className="rounded-2xl bg-slate-950/60 border border-slate-800 p-4 min-w-0 overflow-hidden"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={["text-xs px-2 py-1 rounded-full border", pillStyle(t.status)].join(" ")}>
-                          {COLUMNS.find((c) => c.key === t.status)?.title || t.status}
+                  <div className="flex items-start gap-2 min-w-0">
+                    <div className={`px-2 py-1 rounded-lg border text-xs font-bold ${pillStyle(t.status)}`}>
+                      {t.status.replaceAll("_", " ")}
+                    </div>
+
+                    {t.archived && (
+                      <div className="px-2 py-1 rounded-lg bg-slate-800 text-slate-200 text-xs font-extrabold border border-slate-700">
+                        ARCHIVED
+                      </div>
+                    )}
+
+                    {t.is_stale && (
+                      <div className="px-2 py-1 rounded-lg bg-warlocksGold text-slate-950 text-xs font-extrabold">
+                        STALE
+                      </div>
+                    )}
+
+                    <div className="ml-auto text-xs text-slate-400 whitespace-nowrap">
+                      Updated: <span className="text-slate-200">{formatDateTimeEastern(t.last_activity_at)}</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-2 font-extrabold text-white break-words">{t.title}</div>
+                  <div className="text-xs text-slate-400 mt-1">
+                    <span className="text-slate-200 font-semibold">Subteam:</span> {t.subteam}
+                  </div>
+
+                  {t.description && (
+                    <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap break-words">{t.description}</div>
+                  )}
+
+                  <div className="mt-3 min-w-0">
+                    <div className="text-xs text-slate-400 mb-1">Assigned</div>
+                    <div className="flex flex-wrap gap-2 max-w-full">
+                      {(t.assignees || []).length === 0 && <span className="text-slate-400 text-sm">—</span>}
+
+                      {(t.assignees || []).map((a) => (
+                        <span
+                          key={a.student_id}
+                          className="px-2 py-1 rounded-lg bg-slate-950 border border-slate-800 text-sm inline-flex items-center gap-2"
+                        >
+                          <span className="break-words">{a.full_name}</span>
+
+                          {mentorMode && (
+                            <button
+                              type="button"
+                              title="Remove from task"
+                              className="ml-1 inline-flex items-center justify-center w-5 h-5 rounded-md border border-slate-700 text-slate-200 hover:bg-slate-900/60 pointer-events-auto"
+                              onClick={async (e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                showMessage(`Removing ${a.full_name}…`);
+                                await mentorRemove(t.id, a);
+                              }}
+                            >
+                              ×
+                            </button>
+                          )}
                         </span>
-                        <span className="text-xs px-2 py-1 rounded-full border border-slate-700 bg-slate-900/40">
-                          {t.subteam}
-                        </span>
-                        {t.is_stale && (
-                          <span className="text-xs px
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2 max-w-full">
+                    {!isAssigned(t) ? (
+                      <button
+                        onClick={() => join(t.id)}
+                        className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
+                      >
+                        Join
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => leave(t.id)}
+                        className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
+                      >
+                        Leave
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => openComments(t.id)}
+                      className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
+                    >
+                      Comments
+                    </button>
+
+                    {mentorMode && (
+                      <div className="ml-auto flex items-center gap-2 flex-wrap max-w-full">
+                        <select
+                          defaultValue=""
+                          onChange={(e) => mentorAssign(t.id, e.target.value)}
+                          className="rounded-xl bg-slate-950 border-slate-800 text-white text-sm max-w-full"
+                        >
+                          <option value="">Assign…</option>
+                          {students.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.full_name}
+                            </option>
+                          ))}
+                        </select>
+
+                        <select
+                          value={t.status}
+                          onChange={(e) => mentorMove(t.id, e.target.value)}
+                          className="rounded-xl bg-slate-950 border-slate-800 text-white text-sm max-w-full"
+                        >
+                          {COLUMNS.map((c) => (
+                            <option key={c.key} value={c.key}>
+                              {c.title}
+                            </option>
+                          ))}
+                        </select>
+
+                        {t.status === "done" && (
+                          !t.archived ? (
+                            <button
+                              type="button"
+                              onClick={() => archiveTask(t.id)}
+                              className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
+                            >
+                              Archive
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => unarchiveTask(t.id)}
+                              className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
+                            >
+                              Unarchive
+                            </button>
+                          )
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {(grouped[col.key] || []).length === 0 && (
+                <div className="rounded-xl bg-slate-950/40 border border-slate-800 p-4 text-slate-400 text-sm min-w-0 overflow-hidden">
+                  No tasks here.
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {openTaskId && (
+        <div className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl min-w-0">
+            <div className="px-5 py-4 border-b border-slate-800 flex items-center gap-3 min-w-0">
+              <div className="font-extrabold text-white">Task Comments</div>
+              <button
+                onClick={() => setOpenTaskId(null)}
+                className="ml-auto px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800 font-semibold"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="p-5 grid gap-4 min-w-0">
+              <div className="max-h-[320px] overflow-auto rounded-xl border border-slate-800 bg-slate-900/30 p-4 min-w-0">
+                {comments.length === 0 && <div className="text-slate-400">No comments yet.</div>}
+                <div className="grid gap-3 min-w-0">
+                  {comments.map((c) => (
+                    <div
+                      key={c.id}
+                      className="rounded-xl bg-slate-950/60 border border-slate-800 p-3 min-w-0 overflow-hidden"
+                    >
+                      <div className="text-xs text-slate-400">
+                        <span className="text-slate-200 font-semibold">{c.author_label}</span>{" "}
+                        <span className="text-slate-500">({c.author_type})</span> • {formatDateTimeEastern(c.created_at)}
+                      </div>
+                      <div className="text-sm text-slate-200 mt-1 whitespace-pre-wrap break-words">{c.comment}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="min-w-0">
+                <div className="text-xs text-slate-400 mb-2">
+                  Posting as:{" "}
+                  <span className="text-slate-200 font-semibold">
+                    {studentId
+                      ? students.find((s) => String(s.id) === String(studentId))?.full_name || "Student"
+                      : "Mentor"}
+                  </span>
+                </div>
+                <textarea
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  className="w-full min-h-[90px] rounded-xl bg-slate-950 border-slate-800 text-white"
+                  placeholder="Add a short note, link, or what you tried..."
+                />
+                <div className="mt-3 flex justify-end">
+                  <button
+                    onClick={postComment}
+                    className="px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 transition font-bold"
+                  >
+                    Post Comment
+                  </button>
+                </div>
+              </div>
+
+              <div className="text-xs text-slate-500">
+                Stale indicator: tasks with no activity (assignment/comment/status update) for 3+ days.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
