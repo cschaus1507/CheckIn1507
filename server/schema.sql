@@ -1,17 +1,16 @@
+-- Warlocks 1507 Attendance + Status (No Login)
+
 create table if not exists students (
   id bigserial primary key,
-  full_name text not null,
-  subteam text not null,
+  full_name text unique not null,
+  subteam text,
   is_active boolean not null default true,
   created_at timestamptz not null default now()
 );
 
-create table if not exists checkins (
-  id bigserial primary key,
-  student_id bigint not null references students(id) on delete cascade,
-  role text not null default 'student' check (role in ('student','mentor')),
-  created_at timestamptz not null default now()
-);
+/* =======================
+   Task Board (Trello-light)
+   ======================= */
 
 create table if not exists tasks (
   id bigserial primary key,
@@ -24,8 +23,11 @@ create table if not exists tasks (
   updated_at timestamptz not null default now()
 );
 
--- Add archived column if this DB was created before archiving existed
+-- Backfill for existing DBs
 alter table tasks add column if not exists archived boolean not null default false;
+
+create index if not exists tasks_by_subteam on tasks(subteam);
+create index if not exists tasks_by_status on tasks(status);
 
 create table if not exists task_assignments (
   id bigserial primary key,
@@ -36,17 +38,31 @@ create table if not exists task_assignments (
   unique (task_id, student_id, unassigned_at)
 );
 
+-- IMPORTANT:
+-- Prevent a student from being "assigned" AND "joined" (duplicate active rows).
+create unique index if not exists task_assignments_active_unique
+on task_assignments(task_id, student_id)
+where unassigned_at is null;
+
 create table if not exists task_comments (
-  id bigserial primary key,
-  task_id bigint not null references tasks(id) on delete cascade,
-  author_type text not null default 'mentor' check (author_type in ('student','mentor')),
-  author_label text not null default '',
-  comment text not null,
-  created_at timestamptz not null default now()
+ _extract omitted_
 );
 
--- Ensure a student can only be actively assigned once per task (prevents duplicate join/assign)
-create unique index if not exists task_assignments_active_unique
-  on task_assignments (task_id, student_id)
-  where unassigned_at is null;
+create table if not exists daily_sessions (
+ _extract omitted_
+);
+
+create index if not exists daily_sessions_need_help
+on daily_sessions(meeting_date, need_help)
+where need_help = true;
+
+create index if not exists daily_sessions_need_task
+on daily_sessions(meeting_date, need_task)
+where need_task = true;
+
+-- Add task_id column to daily_sessions if it doesn't exist
+alter table daily_sessions
+add column if not exists task_id bigint
+references tasks(id)
+on delete set null;
 
