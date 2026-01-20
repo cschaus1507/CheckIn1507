@@ -15,15 +15,15 @@ const COLUMNS = [
 function pillStyle(key) {
   switch (key) {
     case "todo":
-      return "bg-slate-900/50 border-slate-700 text-slate-200";
+      return "bg-slate-950 border-slate-800 text-slate-200";
     case "in_progress":
-      return "bg-blue-950/40 border-blue-800 text-blue-200";
+      return "bg-blue-950 border-blue-800/60 text-blue-200";
     case "blocked":
-      return "bg-amber-950/40 border-amber-700 text-amber-200";
+      return "bg-yellow-950 border-yellow-700/60 text-yellow-200";
     case "done":
-      return "bg-emerald-950/40 border-emerald-700 text-emerald-200";
+      return "bg-emerald-950 border-emerald-800/60 text-emerald-200";
     default:
-      return "bg-slate-900/50 border-slate-700 text-slate-200";
+      return "bg-slate-950 border-slate-800 text-slate-200";
   }
 }
 
@@ -55,16 +55,15 @@ export default function Tasks() {
 
   async function load() {
     try {
-      const [{ tasks }, { students }] = await Promise.all([
-        api(
-          (() => {
-            const base = subteam === "All" ? "/api/tasks" : `/api/tasks?subteam=${encodeURIComponent(subteam)}`;
-            if (showArchived) return base + (base.includes("?") ? "&" : "?") + "includeArchived=true";
-            return base;
-          })()
-        ),
-        api("/api/students")
-      ]);
+      const base =
+        subteam === "All" ? "/api/tasks" : `/api/tasks?subteam=${encodeURIComponent(subteam)}`;
+
+      const url = mentorMode && showArchived
+        ? base + (base.includes("?") ? "&" : "?") + "includeArchived=true"
+        : base;
+
+      const [{ tasks }, { students }] = await Promise.all([api(url), api("/api/students")]);
+
       setTasks(tasks);
       setStudents(students);
       setMsg("");
@@ -95,21 +94,22 @@ export default function Tasks() {
 
   async function mentorCreate(e) {
     e.preventDefault();
-    if (!newTitle.trim()) return showMessage("Title required.");
+    if (!newTitle.trim()) return showMessage("Need a title.");
+
     try {
       await api("/api/tasks", {
         method: "POST",
-        headers: { "x-app-key": sessionStorage.getItem("mentorKey") || "" },
         body: JSON.stringify({
           title: newTitle.trim(),
           subteam: newSubteam,
-          description: newDesc.trim()
+          description: newDesc.trim(),
+          status: "todo"
         })
       });
       setNewTitle("");
       setNewDesc("");
       await load();
-      showMessage("✅ Task created.");
+      showMessage("✅ Created.");
     } catch (err) {
       console.error("Create failed:", err);
       showMessage(`❌ Create failed: ${err?.message || "unknown error"}`);
@@ -120,7 +120,6 @@ export default function Tasks() {
     try {
       await api(`/api/tasks/${taskId}`, {
         method: "PATCH",
-        headers: { "x-app-key": sessionStorage.getItem("mentorKey") || "" },
         body: JSON.stringify({ status })
       });
       await load();
@@ -190,16 +189,15 @@ export default function Tasks() {
     }
   }
 
-  async function mentorRemove(taskId, student) {
-    // Uses the existing "leave" endpoint, but sends the chosen student's id.
-    // Adds stopPropagation + try/catch so clicks aren't swallowed and errors surface.
+  async function mentorRemove(taskId, a) {
+    // a = { student_id, full_name }
     try {
       await api(`/api/tasks/${taskId}/leave`, {
         method: "POST",
-        body: JSON.stringify({ studentId: Number(student.student_id ?? student.studentId ?? student.id) })
+        body: JSON.stringify({ studentId: Number(a.student_id) })
       });
       await load();
-      showMessage(`✅ Removed ${student.full_name}`);
+      showMessage(`✅ Removed ${a.full_name}`);
     } catch (err) {
       console.error("Remove failed:", err);
       showMessage(`❌ Remove failed: ${err?.message || "unknown error"}`);
@@ -207,11 +205,10 @@ export default function Tasks() {
   }
 
   async function archiveTask(taskId) {
-    if (!mentorMode) return;
     try {
       await api(`/api/tasks/${taskId}/archive`, { method: "POST" });
       await load();
-      showMessage("✅ Task archived.");
+      showMessage("✅ Archived.");
     } catch (err) {
       console.error("Archive failed:", err);
       showMessage(`❌ Archive failed: ${err?.message || "unknown error"}`);
@@ -219,11 +216,10 @@ export default function Tasks() {
   }
 
   async function unarchiveTask(taskId) {
-    if (!mentorMode) return;
     try {
       await api(`/api/tasks/${taskId}/unarchive`, { method: "POST" });
       await load();
-      showMessage("✅ Task unarchived.");
+      showMessage("✅ Unarchived.");
     } catch (err) {
       console.error("Unarchive failed:", err);
       showMessage(`❌ Unarchive failed: ${err?.message || "unknown error"}`);
@@ -238,7 +234,7 @@ export default function Tasks() {
           <h1 className="text-2xl font-black tracking-tight">Task Board</h1>
           <p className="text-slate-300 mt-1">
             Students: pick your name, join tasks, leave tasks, and post comments.
-            Mentors: create tasks, move them through columns, and remove students.
+            Mentors: create tasks, move tasks, remove students, and archive Done tasks.
           </p>
 
           <div className="mt-4 flex flex-col gap-3">
@@ -285,18 +281,22 @@ export default function Tasks() {
                 </div>
               )}
             </div>
+
+            {mentorMode && (
+              <div className="flex items-center gap-3 text-sm">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showArchived}
+                    onChange={(e) => setShowArchived(e.target.checked)}
+                  />
+                  <span>Show archived</span>
+                </label>
+              </div>
+            )}
           </div>
         </div>
       </div>
-
-      {mentorMode && (
-        <div className="mt-3 flex items-center gap-3 text-sm">
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-            <span>Show archived</span>
-          </label>
-        </div>
-      )}
 
       {mentorMode && (
         <Card title="Mentor: Create a task">
@@ -361,7 +361,7 @@ export default function Tasks() {
                   key={t.id}
                   className={[
                     "rounded-2xl border border-slate-800 bg-slate-950/50 p-4 hover:bg-slate-900/40 transition",
-                    t.is_stale ? "ring-2 ring-amber-700/60" : ""
+                    t.is_stale ? "ring-2 ring-yellow-700/60" : ""
                   ].join(" ")}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -374,192 +374,4 @@ export default function Tasks() {
                           {t.subteam}
                         </span>
                         {t.is_stale && (
-                          <span className="text-xs px-2 py-1 rounded-full border border-amber-700/60 bg-amber-950/30 text-amber-200">
-                            Stale
-                          </span>
-                        )}
-                        {t.archived && (
-                          <span className="text-xs px-2 py-1 rounded-full border border-slate-700 bg-slate-900/40 text-slate-200">
-                            Archived
-                          </span>
-                        )}
-                      </div>
-
-                      <h3 className="font-black text-lg mt-2 break-words">{t.title}</h3>
-
-                      {t.description ? (
-                        <p className="text-slate-300 mt-2 whitespace-pre-wrap break-words">{t.description}</p>
-                      ) : null}
-
-                      <p className="text-xs text-slate-400 mt-3">
-                        Updated: {formatDateTimeEastern(t.updated_at)}
-                      </p>
-
-                      <div className="mt-3">
-                        <div className="text-xs font-semibold text-slate-300 mb-2">Assignees</div>
-                        <div className="flex flex-wrap gap-2">
-                          {(t.assignees || []).length ? (
-                            (t.assignees || []).map((a) => (
-                              <span
-                                key={a.student_id}
-                                className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full border border-slate-700 bg-slate-900/40"
-                              >
-                                <span className="truncate max-w-[220px]">{a.full_name}</span>
-
-                                {mentorMode && (
-                                  <button
-                                    className="w-5 h-5 rounded-full border border-slate-700 bg-slate-950 hover:bg-slate-900 text-slate-100 leading-none"
-                                    title="Remove student"
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      showMessage(`Removing ${a.full_name}…`);
-                                      await mentorRemove(t.id, a);
-                                    }}
-                                  >
-                                    ×
-                                  </button>
-                                )}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-xs text-slate-400">None</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-2 items-end">
-                      <button
-                        onClick={() => openComments(t.id)}
-                        className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
-                      >
-                        Comments
-                      </button>
-
-                      {mentorMode && (
-                        <select
-                          value={t.status}
-                          onChange={(e) => mentorMove(t.id, e.target.value)}
-                          className="rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-sm"
-                        >
-                          {COLUMNS.map((c) => (
-                            <option key={c.key} value={c.key}>
-                              {c.title}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-
-                      {mentorMode && t.status === "done" && (
-                        <>
-                          {!t.archived ? (
-                            <button
-                              onClick={() => archiveTask(t.id)}
-                              className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
-                            >
-                              Archive
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => unarchiveTask(t.id)}
-                              className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
-                            >
-                              Unarchive
-                            </button>
-                          )}
-                        </>
-                      )}
-
-                      {!isAssigned(t) ? (
-                        <button
-                          onClick={() => join(t.id)}
-                          className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
-                        >
-                          Join
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => leave(t.id)}
-                          className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
-                        >
-                          Leave
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              {!grouped[col.key]?.length ? (
-                <div className="text-sm text-slate-400 border border-dashed border-slate-800 rounded-2xl p-4">
-                  No tasks.
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Comments Modal */}
-      {openTaskId && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-950 p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-xl font-black">Comments</h3>
-                <p className="text-sm text-slate-400 mt-1">
-                  {studentId ? "Posting as selected student." : "Posting as Mentor."}
-                </p>
-              </div>
-              <button
-                onClick={() => setOpenTaskId(null)}
-                className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="mt-4 max-h-[50vh] overflow-auto grid gap-3 pr-1">
-              {comments.length ? (
-                comments.map((c) => (
-                  <div key={c.id} className="rounded-2xl border border-slate-800 bg-slate-950/60 p-3">
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm font-bold text-slate-100">
-                        {c.author_label}{" "}
-                        <span className="text-xs font-semibold text-slate-400">({c.author_type})</span>
-                      </div>
-                      <div className="text-xs text-slate-400">{formatDateTimeEastern(c.created_at)}</div>
-                    </div>
-                    <div className="text-slate-200 mt-2 whitespace-pre-wrap break-words">{c.comment}</div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-sm text-slate-400 border border-dashed border-slate-800 rounded-2xl p-4">
-                  No comments yet.
-                </div>
-              )}
-            </div>
-
-            <div className="mt-4 grid gap-3">
-              <textarea
-                value={commentText}
-                onChange={(e) => setCommentText(e.target.value)}
-                className="w-full rounded-2xl bg-slate-950/60 border border-slate-800 px-3 py-3 text-slate-100 min-h-[90px]"
-                placeholder="Write a comment…"
-              />
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  onClick={postComment}
-                  className="px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 font-black text-white"
-                >
-                  Post Comment
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
+                          <span className="text-xs px
