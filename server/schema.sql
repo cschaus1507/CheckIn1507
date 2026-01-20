@@ -18,12 +18,14 @@ create table if not exists tasks (
   subteam text not null,
   status text not null default 'todo' check (status in ('todo','in_progress','blocked','done')),
   description text not null default '',
+  archived_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
 create index if not exists tasks_by_subteam on tasks(subteam);
 create index if not exists tasks_by_status on tasks(status);
+create index if not exists tasks_by_archived on tasks(archived_at);
 
 create table if not exists task_assignments (
   id bigserial primary key,
@@ -35,6 +37,23 @@ create table if not exists task_assignments (
 );
 
 create index if not exists task_assignments_active
+on task_assignments(task_id, student_id)
+where unassigned_at is null;
+
+-- Safety: if a DB already exists and has duplicate *active* assignments (unassigned_at is null),
+-- keep the newest row and close out the older ones so we can enforce a single active assignment.
+update task_assignments ta
+   set unassigned_at = now()
+ where ta.unassigned_at is null
+   and ta.id not in (
+     select max(id)
+       from task_assignments
+      where unassigned_at is null
+      group by task_id, student_id
+   );
+
+-- Enforce: only one active assignment per task/student.
+create unique index if not exists task_assignments_one_active
 on task_assignments(task_id, student_id)
 where unassigned_at is null;
 
