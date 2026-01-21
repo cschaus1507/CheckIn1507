@@ -242,7 +242,8 @@ export default function Tasks() {
         <BoltMark className="mt-1" />
         <div className="flex-1 min-w-0">
           <div className="text-3xl font-extrabold">
-            <span className="text-blue-400">Tasks</span> <span className="text-warlocksGold">Board</span>
+            <span className="text-blue-400">Tasks</span>{" "}
+            <span className="text-warlocksGold">Board</span>
           </div>
           <div className="text-slate-300 mt-1">As they say... "Many hands make light work"</div>
 
@@ -281,7 +282,9 @@ export default function Tasks() {
                   </option>
                 ))}
               </select>
-              <div className="mt-1 text-xs text-slate-400">If you don’t select a name, you can still browse tasks.</div>
+              <div className="mt-1 text-xs text-slate-400">
+                If you don’t select a name, you can still browse tasks.
+              </div>
 
               {mentorMode && (
                 <label className="mt-3 flex items-center gap-2 text-sm text-slate-200 select-none cursor-pointer">
@@ -333,7 +336,9 @@ export default function Tasks() {
               </select>
             </div>
             <div className="md:col-span-3 min-w-0">
-              <label className="block text-sm font-semibold text-slate-200 mb-2">Short notes / link (optional)</label>
+              <label className="block text-sm font-semibold text-slate-200 mb-2">
+                Short notes / link (optional)
+              </label>
               <textarea
                 value={newDesc}
                 onChange={(e) => setNewDesc(e.target.value)}
@@ -348,12 +353,17 @@ export default function Tasks() {
         </Card>
       )}
 
-      {/* Board layout fix: horizontal scroll Trello-style */}
-      <div className="flex gap-4 overflow-x-auto pb-4">
+      {/* Board layout fix: horizontal scroll + snap (Trello-style) */}
+      <div className="md:hidden text-xs text-slate-400 flex items-center justify-between px-2 -mt-2">
+        <span>Swipe left/right to see more columns</span>
+        <span aria-hidden className="text-slate-500">↔</span>
+      </div>
+
+      <div className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory scroll-px-4 px-4 -mx-4">
         {COLUMNS.map((col) => (
           <div
             key={col.key}
-            className="w-[340px] flex-shrink-0 rounded-2xl border border-slate-800 bg-slate-900/40 p-3 flex flex-col min-w-0"
+            className="min-w-[85vw] sm:min-w-0 sm:w-[340px] flex-shrink-0 snap-start rounded-2xl border border-slate-800 bg-slate-900/40 p-3 flex flex-col min-w-0"
           >
             <div className="px-2 py-1 flex items-center gap-2">
               <div className="font-extrabold">{col.title}</div>
@@ -364,7 +374,7 @@ export default function Tasks() {
               {(grouped[col.key] || []).map((t) => (
                 <div
                   key={t.id}
-                  className="rounded-2xl bg-slate-950/60 border border-slate-800 p-4 min-w-0 overflow-hidden"
+                  className="rounded-2xl bg-slate-950/60 border border-slate-800 p-4 min-w-0 overflow-visible"
                 >
                   <div className="flex items-start gap-2 min-w-0">
                     <div className={`px-2 py-1 rounded-lg border text-xs font-bold ${pillStyle(t.status)}`}>
@@ -384,7 +394,10 @@ export default function Tasks() {
                     )}
 
                     <div className="ml-auto text-xs text-slate-400 whitespace-nowrap">
-                      Updated: <span className="text-slate-200">{formatDateTimeEastern(t.last_activity_at)}</span>
+                      Updated:{" "}
+                      <span className="text-slate-200">
+                        {formatDateTimeEastern(t.last_activity_at)}
+                      </span>
                     </div>
                   </div>
 
@@ -394,13 +407,17 @@ export default function Tasks() {
                   </div>
 
                   {t.description && (
-                    <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap break-words">{t.description}</div>
+                    <div className="mt-2 text-sm text-slate-200 whitespace-pre-wrap break-words">
+                      {t.description}
+                    </div>
                   )}
 
                   <div className="mt-3 min-w-0">
                     <div className="text-xs text-slate-400 mb-1">Assigned</div>
                     <div className="flex flex-wrap gap-2 max-w-full">
-                      {(t.assignees || []).length === 0 && <span className="text-slate-400 text-sm">—</span>}
+                      {(t.assignees || []).length === 0 && (
+                        <span className="text-slate-400 text-sm">—</span>
+                      )}
 
                       {(t.assignees || []).map((a) => (
                         <span
@@ -454,7 +471,7 @@ export default function Tasks() {
                     </button>
 
                     {mentorMode && (
-                      <div className="ml-auto flex items-center gap-2 flex-wrap max-w-full">
+                      <div className="ml-auto flex items-center gap-2 flex-wrap justify-end w-full sm:w-auto">
                         <select
                           defaultValue=""
                           onChange={(e) => mentorAssign(t.id, e.target.value)}
@@ -480,8 +497,8 @@ export default function Tasks() {
                           ))}
                         </select>
 
-                        {t.status === "done" && (
-                          !t.archived ? (
+                        {t.status === "done" &&
+                          (!t.archived ? (
                             <button
                               type="button"
                               onClick={() => archiveTask(t.id)}
@@ -497,8 +514,7 @@ export default function Tasks() {
                             >
                               Unarchive
                             </button>
-                          )
-                        )}
+                          ))}
                       </div>
                     )}
                   </div>
@@ -539,9 +555,12 @@ export default function Tasks() {
                     >
                       <div className="text-xs text-slate-400">
                         <span className="text-slate-200 font-semibold">{c.author_label}</span>{" "}
-                        <span className="text-slate-500">({c.author_type})</span> • {formatDateTimeEastern(c.created_at)}
+                        <span className="text-slate-500">({c.author_type})</span> •{" "}
+                        {formatDateTimeEastern(c.created_at)}
                       </div>
-                      <div className="text-sm text-slate-200 mt-1 whitespace-pre-wrap break-words">{c.comment}</div>
+                      <div className="text-sm text-slate-200 mt-1 whitespace-pre-wrap break-words">
+                        {c.comment}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -582,3 +601,4 @@ export default function Tasks() {
     </div>
   );
 }
+
