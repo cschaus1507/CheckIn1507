@@ -1086,6 +1086,59 @@ app.patch("/api/admin/students/:id", requireKey("MANAGER_KEY"), async (req, res)
   res.json({ student: r.rows[0] });
 });
 
+
+/* ---------------- Admin: Year rollover (new season) ----------------
+   Clears attendance + tasks + corrections while keeping the student roster.
+   Protected by MANAGER_KEY via x-access-key header.
+
+   Safety:
+   - Requires env ALLOW_YEAR_RESET=true
+   - Requires body { confirm: "RESET" }
+*/
+
+app.post("/api/admin/reset-year", requireKey("MANAGER_KEY"), async (req, res) => {
+  try {
+    if (process.env.ALLOW_YEAR_RESET !== "true") {
+      return res.status(403).json({ error: "Year reset is disabled (set ALLOW_YEAR_RESET=true)." });
+    }
+
+    const { confirm } = req.body || {};
+    if (confirm !== "RESET") {
+      return res.status(400).json({ error: "Confirmation required. Send { confirm: 'RESET' }." });
+    }
+
+    // Transaction so it’s all-or-nothing
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // Clear in a FK-safe way (include all related tables in the TRUNCATE list)
+      await client.query(`
+        TRUNCATE TABLE
+          task_comments,
+          task_assignments,
+          tasks,
+          attendance_corrections,
+          daily_sessions
+        RESTART IDENTITY
+      `);
+
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error("reset-year failed:", e);
+    return res.status(500).json({ error: e.message || "Reset failed" });
+  }
+});
+
+
 /* ---------------- Serve client (built assets) ---------------- */
 
 const publicDir = path.join(__dirname, "..", "public");
