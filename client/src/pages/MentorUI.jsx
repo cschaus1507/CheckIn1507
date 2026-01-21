@@ -528,6 +528,10 @@ export default function MentorUI() {
                 />
               </label>
 
+              <div className="text-xs text-slate-400">
+                Times are in Eastern Time. If you see an AM/PM selector, make sure to choose it.
+              </div>
+
               <label className="text-sm font-semibold text-slate-200">
                 Subteam (optional)
                 <input
