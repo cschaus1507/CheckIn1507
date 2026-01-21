@@ -19,7 +19,7 @@ async function main() {
     ssl: { rejectUnauthorized: false }
   });
 
-  const seedPath = path.join(__dirname, "..", "seed_students.sql");
+  const seedPath = path.join(__dirname, "..", "seed.sql");
   const seedSql = fs.readFileSync(seedPath, "utf8");
 
   console.log("Connecting to database...");
