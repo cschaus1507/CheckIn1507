@@ -42,10 +42,18 @@ export default function Manage() {
   async function addStudent(e) {
     e.preventDefault();
     try {
+      const name = fullName.trim();
+      if (!name) {
+        setMsg("Missing full name.");
+        return;
+      }
+
+      // Backend expects snake_case keys
       await api("/api/admin/students", {
         method: "POST",
-        body: JSON.stringify({ fullName, subteam })
+        body: JSON.stringify({ full_name: name, subteam })
       });
+
       setFullName("");
       setSubteam("");
       await load();
@@ -57,9 +65,10 @@ export default function Manage() {
 
   async function toggleActive(s) {
     try {
+      // Backend expects snake_case keys
       await api(`/api/admin/students/${s.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ isActive: !s.is_active })
+        body: JSON.stringify({ is_active: !s.is_active })
       });
       await load();
     } catch (e) {
@@ -79,6 +88,8 @@ export default function Manage() {
     }
   }
 
+  if (!ready) return null;
+
   return (
     <div className="grid gap-6">
       <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-slate-900/70 to-slate-900/20 p-6 flex items-start gap-4">
@@ -88,40 +99,42 @@ export default function Manage() {
             <span className="text-warlocksGold">Manage</span>{" "}
             <span className="text-blue-400">Team Members</span>
           </div>
-          <div className="text-slate-300 mt-1">
-            Add, update, or deactivate students in the roster.
-          </div>
-          <div className="text-xs text-slate-400 mt-2">
-            This page is intentionally not linked in the navbar: go directly to <span className="text-white font-semibold">/manage</span>.
+          <div className="text-slate-300 mt-1">Add, update, or deactivate students in the roster.</div>
+          <div className="text-slate-500 text-sm mt-2">
+            This page is intentionally not linked in the navbar: go directly to <span className="text-slate-300 font-semibold">/manage</span>.
           </div>
         </div>
       </div>
 
       {msg && (
-        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-200">{msg}</div>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-sm text-slate-200">
+          {msg}
+        </div>
       )}
 
       <Card title="Add a student">
         <form onSubmit={addStudent} className="grid md:grid-cols-3 gap-3 items-end">
-          <div className="md:col-span-2">
+          <div className="md:col-span-2 min-w-0">
             <label className="block text-sm font-semibold text-slate-200 mb-2">Full name</label>
             <input
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
-              placeholder="First Last"
               className="w-full rounded-xl bg-slate-950 border-slate-800 text-white"
+              placeholder="Doe, Jane"
             />
           </div>
 
-          <div>
+          <div className="min-w-0">
             <label className="block text-sm font-semibold text-slate-200 mb-2">Subteam</label>
             <select
               value={subteam}
               onChange={(e) => setSubteam(e.target.value)}
               className="w-full rounded-xl bg-slate-950 border-slate-800 text-white"
             >
-              {SUBTEAMS.map((t) => (
-                <option key={t || "none"} value={t}>{t || "—"}</option>
+              {SUBTEAMS.map((s) => (
+                <option key={s} value={s}>
+                  {s || "—"}
+                </option>
               ))}
             </select>
           </div>
@@ -154,18 +167,21 @@ export default function Manage() {
                     <select
                       value={s.subteam || ""}
                       onChange={(e) => updateSubteam(s, e.target.value)}
-                      className="rounded-xl bg-slate-950 border-slate-800 text-white"
+                      className="rounded-xl bg-slate-950 border-slate-800 text-white px-3 py-2"
                     >
-                      {SUBTEAMS.map((t) => (
-                        <option key={t || "none"} value={t}>{t || "—"}</option>
+                      {SUBTEAMS.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt || "—"}
+                        </option>
                       ))}
                     </select>
                   </td>
                   <td className="py-2 text-slate-200">{s.is_active ? "Yes" : "No"}</td>
                   <td className="py-2">
                     <button
+                      type="button"
                       onClick={() => toggleActive(s)}
-                      className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold"
+                      className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold text-white"
                     >
                       {s.is_active ? "Deactivate" : "Activate"}
                     </button>
@@ -173,7 +189,11 @@ export default function Manage() {
                 </tr>
               ))}
               {students.length === 0 && (
-                <tr><td colSpan="4" className="py-4 text-slate-400">No students yet.</td></tr>
+                <tr>
+                  <td colSpan="4" className="py-4 text-slate-400">
+                    No students yet.
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
