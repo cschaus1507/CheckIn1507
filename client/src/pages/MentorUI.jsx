@@ -52,7 +52,7 @@ function downloadCSV(filename, rows) {
 }
 
 export default function MentorUI() {
-  const [tab, setTab] = useState("status"); // status | report
+  const [tab, setTab] = useState("status"); // status | report | corrections
   const [msg, setMsg] = useState("");
 
   // ✅ Keep mentor key in state so data fetch waits and refreshes after entry
@@ -66,6 +66,19 @@ export default function MentorUI() {
   const [start, setStart] = useState(() => isoEasternDaysAgo(14));
   const [end, setEnd] = useState(() => todayISOEastern());
   const [reportRows, setReportRows] = useState([]);
+
+  // Corrections
+  const [correctionRows, setCorrectionRows] = useState([]);
+  const [correctionStatus, setCorrectionStatus] = useState("pending");
+
+  // Manual attendance entry (paper backfill)
+  const [roster, setRoster] = useState([]);
+  const [manualStudentId, setManualStudentId] = useState("");
+  const [manualDate, setManualDate] = useState(() => todayISOEastern());
+  const [manualIn, setManualIn] = useState("");
+  const [manualOut, setManualOut] = useState("");
+  const [manualWorkingOn, setManualWorkingOn] = useState("");
+  const [manualSubteam, setManualSubteam] = useState("");
 
   // Access key prompt (stored only for this browser session)
   useEffect(() => {
@@ -90,16 +103,71 @@ export default function MentorUI() {
         if (tab === "status") {
           const { rows } = await api(`/api/mentor/status?date=${date}`);
           setRows(rows);
-        } else {
+        } else if (tab === "report") {
           const { rows } = await api(`/api/mentor/report?start=${start}&end=${end}`);
           setReportRows(rows);
+        } else {
+          const { rows } = await api(`/api/mentor/corrections?status=${correctionStatus}`);
+          setCorrectionRows(rows);
         }
         setMsg("");
       } catch (e) {
         setMsg(e?.message || "Request failed.");
       }
     })();
-  }, [tab, date, start, end, mentorKey]);
+  }, [tab, date, start, end, mentorKey, correctionStatus]);
+
+  // Load roster once (for manual entry dropdown)
+  useEffect(() => {
+    (async () => {
+      try {
+        const { students } = await api("/api/students");
+        setRoster(students);
+      } catch {
+        // non-fatal
+      }
+    })();
+  }, []);
+
+  async function refreshCorrections() {
+    const qs = new URLSearchParams();
+    qs.set("status", correctionStatus);
+    const { rows } = await api(`/api/mentor/corrections?${qs.toString()}`);
+    setCorrectionRows(rows);
+  }
+
+  async function decideCorrection(id, status) {
+    await api(`/api/mentor/corrections/${id}/decision`, {
+      method: "POST",
+      body: JSON.stringify({ status })
+    });
+    await refreshCorrections();
+  }
+
+  async function submitManualAttendance() {
+    if (!manualStudentId) return setMsg("Select a student.");
+    if (!manualDate) return setMsg("Choose a date.");
+    try {
+      await api("/api/mentor/attendance/manual", {
+        method: "POST",
+        body: JSON.stringify({
+          studentId: Number(manualStudentId),
+          meetingDate: manualDate,
+          clockInTime: manualIn || "",
+          clockOutTime: manualOut || "",
+          subteam: manualSubteam || "",
+          workingOn: manualWorkingOn || ""
+        })
+      });
+      setMsg("✅ Attendance saved.");
+      setManualIn("");
+      setManualOut("");
+      setManualWorkingOn("");
+      setManualSubteam("");
+    } catch (e) {
+      setMsg(e?.message || "Save failed.");
+    }
+  }
 
   const clockedIn = rows.filter(r => r.clock_in_at && !r.clock_out_at);
   const clockedOut = rows.filter(r => r.clock_in_at && r.clock_out_at);
@@ -141,6 +209,17 @@ export default function MentorUI() {
               }`}
             >
               Attendance Reports
+            </button>
+
+            <button
+              onClick={() => setTab("corrections")}
+              className={`px-3 py-2 rounded-xl text-sm font-bold border ${
+                tab === "corrections"
+                  ? "bg-blue-600 border-blue-500"
+                  : "bg-slate-950 border-slate-800 hover:bg-slate-900/40"
+              }`}
+            >
+              Corrections & Manual Entry
             </button>
           </div>
         </div>
@@ -328,6 +407,156 @@ export default function MentorUI() {
             </table>
           </div>
         </Card>
+      )}
+
+      {tab === "corrections" && (
+        <div className="grid gap-6">
+          <Card
+            title="Attendance correction requests"
+            right={
+              <div className="flex items-center gap-2">
+                <select
+                  value={correctionStatus}
+                  onChange={(e) => setCorrectionStatus(e.target.value)}
+                  className="rounded-xl bg-slate-950 border-slate-800 text-white text-sm"
+                >
+                  <option value="pending">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="denied">Denied</option>
+                  <option value="all">All</option>
+                </select>
+                <button
+                  onClick={refreshCorrections}
+                  className="px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900/40 font-semibold text-sm"
+                >
+                  Refresh
+                </button>
+              </div>
+            }
+          >
+            <div className="grid gap-3">
+              {correctionRows.map((r) => (
+                <div key={r.id} className="rounded-2xl bg-slate-950/60 border border-slate-800 p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1">
+                      <div className="font-extrabold text-slate-100">{r.full_name}</div>
+                      <div className="text-xs text-slate-400 mt-1">
+                        Date: <span className="text-slate-200 font-semibold">{formatDateEastern(r.meeting_date)}</span>
+                        {" "}• In: <span className="text-slate-200 font-semibold">{r.requested_clock_in?.slice(0,5)}</span>
+                        {" "}• Out: <span className="text-slate-200 font-semibold">{r.requested_clock_out ? r.requested_clock_out.slice(0,5) : "—"}</span>
+                        {" "}• Status: <span className="text-slate-200 font-semibold">{r.status}</span>
+                      </div>
+                      <div className="text-sm text-slate-200 mt-2">{r.reason}</div>
+                    </div>
+
+                    {r.status === "pending" && (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => decideCorrection(r.id, "approved")}
+                          className="rounded-xl px-3 py-2 font-bold border bg-blue-600 hover:bg-blue-500 border-blue-500/50 text-sm"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => decideCorrection(r.id, "denied")}
+                          className="rounded-xl px-3 py-2 font-bold border bg-slate-900 hover:bg-slate-800 border-slate-700 text-sm"
+                        >
+                          Deny
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {correctionRows.length === 0 && (
+                <div className="text-slate-400">No correction requests.</div>
+              )}
+            </div>
+          </Card>
+
+          <Card title="Manual attendance entry (paper backfill)">
+            <div className="grid md:grid-cols-2 gap-3">
+              <label className="text-sm font-semibold text-slate-200">
+                Student
+                <select
+                  value={manualStudentId}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setManualStudentId(id);
+                    const s = roster.find(x => String(x.id) === String(id));
+                    setManualSubteam(s?.subteam || "");
+                  }}
+                  className="mt-1 w-full rounded-xl bg-slate-950 border-slate-800 text-white"
+                >
+                  <option value="">-- Select --</option>
+                  {roster.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.full_name}{s.subteam ? ` (${s.subteam})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="text-sm font-semibold text-slate-200">
+                Date
+                <input
+                  type="date"
+                  value={manualDate}
+                  onChange={(e) => setManualDate(e.target.value)}
+                  className="mt-1 w-full rounded-xl bg-slate-950 border-slate-800 text-white"
+                />
+              </label>
+
+              <label className="text-sm font-semibold text-slate-200">
+                Clock-in
+                <input
+                  type="time"
+                  value={manualIn}
+                  onChange={(e) => setManualIn(e.target.value)}
+                  className="mt-1 w-full rounded-xl bg-slate-950 border-slate-800 text-white"
+                />
+              </label>
+
+              <label className="text-sm font-semibold text-slate-200">
+                Clock-out
+                <input
+                  type="time"
+                  value={manualOut}
+                  onChange={(e) => setManualOut(e.target.value)}
+                  className="mt-1 w-full rounded-xl bg-slate-950 border-slate-800 text-white"
+                />
+              </label>
+
+              <label className="text-sm font-semibold text-slate-200">
+                Subteam (optional)
+                <input
+                  value={manualSubteam}
+                  onChange={(e) => setManualSubteam(e.target.value)}
+                  className="mt-1 w-full rounded-xl bg-slate-950 border-slate-800 text-white px-3 py-2"
+                />
+              </label>
+
+              <label className="text-sm font-semibold text-slate-200">
+                Working on (optional)
+                <input
+                  value={manualWorkingOn}
+                  onChange={(e) => setManualWorkingOn(e.target.value)}
+                  className="mt-1 w-full rounded-xl bg-slate-950 border-slate-800 text-white px-3 py-2"
+                />
+              </label>
+            </div>
+
+            <div className="mt-4">
+              <button
+                onClick={submitManualAttendance}
+                className="rounded-xl px-4 py-2 font-bold border bg-blue-600 hover:bg-blue-500 border-blue-500/50"
+              >
+                Save Attendance
+              </button>
+            </div>
+          </Card>
+        </div>
       )}
     </div>
   );

@@ -86,6 +86,14 @@ function easternDateSql() {
   return "(timezone('America/New_York', now()))::date";
 }
 
+function isISODate(s) {
+  return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+}
+
+function isHHMM(s) {
+  return typeof s === "string" && /^\d{2}:\d{2}$/.test(s);
+}
+
 async function autoCloseOldSessions() {
   // If a student forgets to clock out, auto clock-out at exactly 4 hours after clock-in.
   await pool.query(`
@@ -261,6 +269,236 @@ app.get("/api/student/today/:id", async (req, res) => {
   }
 });
 
+/* ---------------- Attendance Corrections ----------------
+   Student submits a request; mentor approves/denies; mentor can also manually enter attendance.
+*/
+
+// Student: request an attendance correction
+app.post("/api/student/correction-request", async (req, res) => {
+  try {
+    const { studentId, meetingDate, clockInTime, clockOutTime, reason } = req.body || {};
+    if (!studentId) return res.status(400).json({ error: "Missing studentId" });
+    if (!isISODate(meetingDate)) return res.status(400).json({ error: "Invalid meetingDate (YYYY-MM-DD)" });
+    if (!isHHMM(clockInTime)) return res.status(400).json({ error: "Invalid clockInTime (HH:MM)" });
+    if (clockOutTime && clockOutTime !== "" && !isHHMM(clockOutTime)) {
+      return res.status(400).json({ error: "Invalid clockOutTime (HH:MM)" });
+    }
+    if (!reason || String(reason).trim().length < 3) {
+      return res.status(400).json({ error: "Please provide a short reason" });
+    }
+
+    await assertStudentActive(Number(studentId));
+
+    const r = await pool.query(
+      `
+      insert into attendance_corrections
+        (student_id, meeting_date, requested_clock_in, requested_clock_out, reason)
+      values
+        ($1, $2::date, $3::time, nullif($4,'')::time, $5)
+      returning *
+      `,
+      [Number(studentId), meetingDate, clockInTime, clockOutTime || "", String(reason).trim()]
+    );
+
+    res.json({ request: r.rows[0] });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || "Server error" });
+  }
+});
+
+// Mentor: list correction requests
+app.get("/api/mentor/corrections", requireKey("MENTOR_KEY"), async (req, res) => {
+  try {
+    const status = (req.query.status || "pending").toLowerCase();
+    const date = req.query.date || null; // optional YYYY-MM-DD
+    if (!['pending','approved','denied','all'].includes(status)) {
+      return res.status(400).json({ error: "Invalid status" });
+    }
+    if (date && !isISODate(date)) return res.status(400).json({ error: "Invalid date (YYYY-MM-DD)" });
+
+    const where = [];
+    const params = [];
+    let i = 1;
+
+    if (status !== 'all') {
+      where.push(`ac.status = $${i++}`);
+      params.push(status);
+    }
+    if (date) {
+      where.push(`ac.meeting_date = $${i++}::date`);
+      params.push(date);
+    }
+
+    const r = await pool.query(
+      `
+      select
+        ac.*, s.full_name, s.subteam as roster_subteam
+      from attendance_corrections ac
+      join students s on s.id = ac.student_id
+      ${where.length ? 'where ' + where.join(' and ') : ''}
+      order by ac.created_at desc
+      limit 200
+      `,
+      params
+    );
+
+    res.json({ rows: r.rows });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || "Server error" });
+  }
+});
+
+// Mentor: approve/deny a request
+app.post("/api/mentor/corrections/:id/decision", requireKey("MENTOR_KEY"), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { status, note } = req.body || {};
+    const next = String(status || "").toLowerCase();
+    if (!['approved','denied'].includes(next)) {
+      return res.status(400).json({ error: "status must be 'approved' or 'denied'" });
+    }
+
+    // Lock the row so we don't double-approve
+    const cur = await pool.query(
+      `select * from attendance_corrections where id=$1 for update`,
+      [id]
+    );
+    if (cur.rowCount === 0) return res.status(404).json({ error: "Request not found" });
+    const reqRow = cur.rows[0];
+    if (reqRow.status !== 'pending') {
+      return res.status(400).json({ error: `Request already ${reqRow.status}` });
+    }
+
+    if (next === 'approved') {
+      // Upsert session row and set requested times.
+      await pool.query(
+        `
+        insert into daily_sessions (student_id, meeting_date)
+        values ($1, $2::date)
+        on conflict (student_id, meeting_date) do update
+          set updated_at = now()
+        `,
+        [reqRow.student_id, reqRow.meeting_date]
+      );
+
+      await pool.query(
+        `
+        update daily_sessions
+           set clock_in_at  = (($2::date + $3::time) at time zone 'America/New_York'),
+               clock_out_at = case
+                               when $4::time is null then null
+                               else (($2::date + $4::time) at time zone 'America/New_York')
+                             end,
+               updated_at = now()
+         where student_id = $1
+           and meeting_date = $2::date
+        `,
+        [reqRow.student_id, reqRow.meeting_date, reqRow.requested_clock_in, reqRow.requested_clock_out]
+      );
+    }
+
+    const updated = await pool.query(
+      `
+      update attendance_corrections
+         set status = $2,
+             decided_at = now(),
+             decided_by = 'mentor',
+             decision_note = nullif($3,'')
+       where id = $1
+       returning *
+      `,
+      [id, next, String(note || '').trim()]
+    );
+
+    res.json({ request: updated.rows[0] });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || "Server error" });
+  }
+});
+
+// Mentor: manually add/edit attendance (paper records backfill)
+app.post("/api/mentor/attendance/manual", requireKey("MENTOR_KEY"), async (req, res) => {
+  try {
+    const { studentId, meetingDate, clockInTime, clockOutTime, subteam, workingOn } = req.body || {};
+    if (!studentId) return res.status(400).json({ error: "Missing studentId" });
+    if (!isISODate(meetingDate)) return res.status(400).json({ error: "Invalid meetingDate (YYYY-MM-DD)" });
+    if (clockInTime && clockInTime !== "" && !isHHMM(clockInTime)) {
+      return res.status(400).json({ error: "Invalid clockInTime (HH:MM)" });
+    }
+    if (clockOutTime && clockOutTime !== "" && !isHHMM(clockOutTime)) {
+      return res.status(400).json({ error: "Invalid clockOutTime (HH:MM)" });
+    }
+
+    await assertStudentActive(Number(studentId));
+
+    // Ensure row exists
+    await pool.query(
+      `
+      insert into daily_sessions (student_id, meeting_date)
+      values ($1, $2::date)
+      on conflict (student_id, meeting_date) do update
+        set updated_at = now()
+      `,
+      [Number(studentId), meetingDate]
+    );
+
+    const r = await pool.query(
+      `
+      update daily_sessions
+         set clock_in_at = case
+                             when nullif($3,'') is null then clock_in_at
+                             else (($2::date + $3::time) at time zone 'America/New_York')
+                           end,
+             clock_out_at = case
+                             when nullif($4,'') is null then clock_out_at
+                             else (($2::date + $4::time) at time zone 'America/New_York')
+                           end,
+             subteam = coalesce(nullif($5,''), subteam),
+             working_on = coalesce($6, working_on),
+             updated_at = now()
+       where student_id = $1
+         and meeting_date = $2::date
+       returning *
+      `,
+      [Number(studentId), meetingDate, clockInTime || "", clockOutTime || "", subteam || "", workingOn ?? null]
+    );
+
+    res.json({ session: r.rows[0] });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || "Server error" });
+  }
+});
+
+// --- Student: request attendance correction ---
+// Body: { studentId, meetingDate: 'YYYY-MM-DD', clockInTime: 'HH:MM', clockOutTime?: 'HH:MM', reason }
+app.post("/api/student/attendance-correction", async (req, res) => {
+  try {
+    const { studentId, meetingDate, clockInTime, clockOutTime, reason } = req.body || {};
+    if (!studentId) return res.status(400).json({ error: "Missing studentId" });
+    if (!isISODate(meetingDate)) return res.status(400).json({ error: "Invalid meetingDate (YYYY-MM-DD)" });
+    if (!isHHMM(clockInTime)) return res.status(400).json({ error: "Invalid clockInTime (HH:MM)" });
+    if (clockOutTime && !isHHMM(clockOutTime)) return res.status(400).json({ error: "Invalid clockOutTime (HH:MM)" });
+    if (!reason || String(reason).trim().length < 3) return res.status(400).json({ error: "Please enter a reason" });
+
+    await assertStudentActive(Number(studentId));
+
+    const r = await pool.query(
+      `
+      insert into attendance_corrections
+        (student_id, meeting_date, requested_clock_in, requested_clock_out, reason)
+      values
+        ($1, $2::date, $3::time, $4::time, $5)
+      returning *
+      `,
+      [Number(studentId), meetingDate, clockInTime, clockOutTime || null, String(reason).trim()]
+    );
+
+    res.json({ request: r.rows[0] });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || "Server error" });
+  }
+});
+
 // --- Mentor: current status board ---
 app.get("/api/mentor/status", requireKey("MENTOR_KEY"), async (req, res) => {
   await autoCloseOldSessions();
@@ -354,6 +592,135 @@ app.get("/api/mentor/report", requireKey("MENTOR_KEY"), async (req, res) => {
   );
 
   res.json({ rows: r.rows });
+});
+
+// --- Mentor: list attendance correction requests ---
+app.get("/api/mentor/corrections", requireKey("MENTOR_KEY"), async (req, res) => {
+  try {
+    const status = (req.query.status || "pending").trim();
+    const date = req.query.date || null; // optional YYYY-MM-DD
+    if (!['pending','approved','denied'].includes(status)) {
+      return res.status(400).json({ error: "Invalid status" });
+    }
+    if (date && !isISODate(date)) return res.status(400).json({ error: "Invalid date (YYYY-MM-DD)" });
+
+    const r = await pool.query(
+      `
+      select
+        ac.*,
+        s.full_name,
+        s.subteam as student_subteam
+      from attendance_corrections ac
+      join students s on s.id = ac.student_id
+      where ac.status = $1
+        and ($2::date is null or ac.meeting_date = $2::date)
+      order by ac.created_at desc
+      `,
+      [status, date]
+    );
+
+    res.json({ rows: r.rows });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || "Server error" });
+  }
+});
+
+// --- Mentor: approve/deny a correction request ---
+// Body: { status: 'approved'|'denied', note?: string }
+app.post("/api/mentor/corrections/:id/decision", requireKey("MENTOR_KEY"), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { status, note } = req.body || {};
+    if (!id) return res.status(400).json({ error: "Invalid id" });
+    if (!['approved','denied'].includes(status)) return res.status(400).json({ error: "Invalid status" });
+
+    const r = await pool.query(`select * from attendance_corrections where id=$1`, [id]);
+    if (r.rowCount === 0) return res.status(404).json({ error: "Request not found" });
+
+    const reqRow = r.rows[0];
+    if (reqRow.status !== 'pending') {
+      return res.status(400).json({ error: "Request already decided" });
+    }
+
+    if (status === 'approved') {
+      // Upsert daily session for that date and apply requested times (Eastern-local)
+      await pool.query(
+        `
+        insert into daily_sessions (student_id, meeting_date, clock_in_at, clock_out_at, updated_at)
+        values (
+          $1,
+          $2::date,
+          (($2::date + $3::time) at time zone 'America/New_York'),
+          case when $4::time is null then null else (($2::date + $4::time) at time zone 'America/New_York') end,
+          now()
+        )
+        on conflict (student_id, meeting_date) do update
+          set clock_in_at = excluded.clock_in_at,
+              clock_out_at = excluded.clock_out_at,
+              updated_at = now()
+        `,
+        [reqRow.student_id, reqRow.meeting_date, reqRow.requested_clock_in, reqRow.requested_clock_out]
+      );
+    }
+
+    const u = await pool.query(
+      `
+      update attendance_corrections
+         set status = $2,
+             decided_at = now(),
+             decided_by = 'mentor',
+             decision_note = $3
+       where id = $1
+       returning *
+      `,
+      [id, status, note ? String(note).trim().slice(0, 500) : null]
+    );
+
+    res.json({ request: u.rows[0] });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || "Server error" });
+  }
+});
+
+// --- Mentor: manual attendance entry (for paper records and edits) ---
+// Body: { studentId, meetingDate:'YYYY-MM-DD', clockInTime:'HH:MM', clockOutTime?:'HH:MM', subteam?, workingOn? }
+app.post("/api/mentor/attendance/manual", requireKey("MENTOR_KEY"), async (req, res) => {
+  try {
+    const { studentId, meetingDate, clockInTime, clockOutTime, subteam, workingOn } = req.body || {};
+    if (!studentId) return res.status(400).json({ error: "Missing studentId" });
+    if (!isISODate(meetingDate)) return res.status(400).json({ error: "Invalid meetingDate (YYYY-MM-DD)" });
+    if (!isHHMM(clockInTime)) return res.status(400).json({ error: "Invalid clockInTime (HH:MM)" });
+    if (clockOutTime && !isHHMM(clockOutTime)) return res.status(400).json({ error: "Invalid clockOutTime (HH:MM)" });
+
+    await assertStudentActive(Number(studentId));
+
+    const r = await pool.query(
+      `
+      insert into daily_sessions (student_id, meeting_date, clock_in_at, clock_out_at, subteam, working_on, updated_at)
+      values (
+        $1,
+        $2::date,
+        (($2::date + $3::time) at time zone 'America/New_York'),
+        case when $4::time is null then null else (($2::date + $4::time) at time zone 'America/New_York') end,
+        nullif($5,''),
+        coalesce($6,''),
+        now()
+      )
+      on conflict (student_id, meeting_date) do update
+        set clock_in_at = excluded.clock_in_at,
+            clock_out_at = excluded.clock_out_at,
+            subteam = coalesce(excluded.subteam, daily_sessions.subteam),
+            working_on = case when excluded.working_on <> '' then excluded.working_on else daily_sessions.working_on end,
+            updated_at = now()
+      returning *
+      `,
+      [Number(studentId), meetingDate, clockInTime, clockOutTime || null, subteam || '', workingOn ?? '']
+    );
+
+    res.json({ session: r.rows[0] });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || "Server error" });
+  }
 });
 
 /* ---------------- Tasks (public board + mentor controls) ----------------

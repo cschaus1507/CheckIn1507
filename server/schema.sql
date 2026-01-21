@@ -115,6 +115,31 @@ on daily_sessions(meeting_date, need_task)
 where need_task = true;
 
 
+/* =======================
+   Attendance Corrections
+   ======================= */
+
+create table if not exists attendance_corrections (
+  id bigserial primary key,
+  student_id bigint not null references students(id) on delete cascade,
+  meeting_date date not null,
+  requested_clock_in time not null,
+  requested_clock_out time,
+  reason text not null,
+  status text not null default 'pending' check (status in ('pending','approved','denied')),
+  created_at timestamptz not null default now(),
+  decided_at timestamptz,
+  decided_by text,
+  decision_note text
+);
+
+create index if not exists attendance_corrections_by_status
+on attendance_corrections(status, meeting_date desc);
+
+create index if not exists attendance_corrections_by_student
+on attendance_corrections(student_id, meeting_date desc);
+
+
 -- Add task_id column to daily_sessions if it doesn't exist
 alter table daily_sessions
 add column if not exists task_id bigint

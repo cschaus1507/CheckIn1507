@@ -31,6 +31,13 @@ export default function StudentUI() {
   const [status, setStatus] = useState("not_clocked_in");
   const [msg, setMsg] = useState("");
 
+  // Attendance correction request
+  const [showCorrection, setShowCorrection] = useState(false);
+  const [corrDate, setCorrDate] = useState(() => todayISOEastern());
+  const [corrIn, setCorrIn] = useState("");
+  const [corrOut, setCorrOut] = useState("");
+  const [corrReason, setCorrReason] = useState("");
+
   // ✅ Keep an Eastern "today" value in state so it updates if kiosk stays open
   const [todayISO, setTodayISO] = useState(() => todayISOEastern());
 
@@ -205,6 +212,33 @@ export default function StudentUI() {
     }
   }
 
+  async function submitCorrection() {
+    if (!studentId) return showMessage("Please select your name first.");
+    if (!corrDate) return showMessage("Please choose a date.");
+    if (!corrIn) return showMessage("Please enter a clock-in time.");
+    if (!corrReason.trim()) return showMessage("Please enter a reason.");
+
+    try {
+      await api("/api/student/attendance-correction", {
+        method: "POST",
+        body: JSON.stringify({
+          studentId: Number(studentId),
+          meetingDate: corrDate,
+          clockInTime: corrIn,
+          clockOutTime: corrOut || null,
+          reason: corrReason
+        })
+      });
+      setShowCorrection(false);
+      setCorrIn("");
+      setCorrOut("");
+      setCorrReason("");
+      showMessage("✅ Correction request sent to mentors.");
+    } catch (e) {
+      showMessage(e?.message || "Request failed.");
+    }
+  }
+
   return (
     <div className="grid gap-6 pb-28">
       <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-slate-900/70 to-slate-900/20 p-6 flex items-start gap-4">
@@ -350,6 +384,102 @@ export default function StudentUI() {
           </button>
         </div>
       </Card>
+
+      <Card title="Forgot to clock in/out?">
+        <div className="text-sm text-slate-300">
+          If you forgot to clock in or out, submit a request and a mentor can fix it.
+        </div>
+        <div className="mt-3">
+          <button
+            disabled={!isSelected}
+            onClick={() => {
+              setCorrDate(todayISO); // default to today
+              setShowCorrection(true);
+            }}
+            className={`rounded-xl px-4 py-3 font-bold border transition ${
+              !isSelected
+                ? "bg-slate-950 border-slate-900 text-slate-600 cursor-not-allowed"
+                : "bg-slate-950 border-slate-800 hover:bg-slate-900/40"
+            }`}
+          >
+            Request Attendance Correction
+          </button>
+        </div>
+      </Card>
+
+      {showCorrection && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setShowCorrection(false)}
+          />
+          <div className="relative w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-950 p-5 shadow-2xl">
+            <div className="text-xl font-extrabold">Request Attendance Correction</div>
+            <div className="text-sm text-slate-300 mt-1">
+              Use this if you forgot to clock in or clock out.
+            </div>
+
+            <div className="grid gap-3 mt-4">
+              <label className="text-sm font-semibold text-slate-200">
+                Date
+                <input
+                  type="date"
+                  value={corrDate}
+                  onChange={(e) => setCorrDate(e.target.value)}
+                  className="mt-1 w-full rounded-xl bg-slate-950 border border-slate-800 text-white px-3 py-2"
+                />
+              </label>
+
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-sm font-semibold text-slate-200">
+                  Clock-in time
+                  <input
+                    type="time"
+                    value={corrIn}
+                    onChange={(e) => setCorrIn(e.target.value)}
+                    className="mt-1 w-full rounded-xl bg-slate-950 border border-slate-800 text-white px-3 py-2"
+                  />
+                </label>
+                <label className="text-sm font-semibold text-slate-200">
+                  Clock-out time
+                  <input
+                    type="time"
+                    value={corrOut}
+                    onChange={(e) => setCorrOut(e.target.value)}
+                    className="mt-1 w-full rounded-xl bg-slate-950 border border-slate-800 text-white px-3 py-2"
+                  />
+                </label>
+              </div>
+
+              <label className="text-sm font-semibold text-slate-200">
+                Reason
+                <textarea
+                  value={corrReason}
+                  onChange={(e) => setCorrReason(e.target.value)}
+                  rows={3}
+                  className="mt-1 w-full rounded-xl bg-slate-950 border border-slate-800 text-white px-3 py-2"
+                  placeholder="Ex: I arrived at 6:05 but forgot to hit Clock In."
+                />
+              </label>
+            </div>
+
+            <div className="mt-5 flex gap-2 justify-end">
+              <button
+                onClick={() => setShowCorrection(false)}
+                className="rounded-xl px-4 py-2 font-bold border bg-slate-900 hover:bg-slate-800 border-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitCorrection}
+                className="rounded-xl px-4 py-2 font-bold border bg-blue-600 hover:bg-blue-500 border-blue-500/50"
+              >
+                Submit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="fixed bottom-0 left-0 right-0 z-20">
         <div className="max-w-6xl mx-auto px-4 pb-4">
