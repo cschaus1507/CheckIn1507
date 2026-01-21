@@ -55,8 +55,7 @@ export default function Tasks() {
 
   async function load() {
     try {
-      const base =
-        subteam === "All" ? "/api/tasks" : `/api/tasks?subteam=${encodeURIComponent(subteam)}`;
+      const base = subteam === "All" ? "/api/tasks" : `/api/tasks?subteam=${encodeURIComponent(subteam)}`;
       const url =
         mentorMode && showArchived
           ? base + (base.includes("?") ? "&" : "?") + "includeArchived=true"
@@ -353,12 +352,13 @@ export default function Tasks() {
         </Card>
       )}
 
-      {/* Board layout fix: horizontal scroll + snap (Trello-style) */}
+      {/* Mobile hint for horizontal board */}
       <div className="md:hidden text-xs text-slate-400 flex items-center justify-between px-2 -mt-2">
         <span>Swipe left/right to see more columns</span>
         <span aria-hidden className="text-slate-500">↔</span>
       </div>
 
+      {/* Board layout: horizontal scroll + snap */}
       <div className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory scroll-px-4 px-4 -mx-4">
         {COLUMNS.map((col) => (
           <div
@@ -395,7 +395,7 @@ export default function Tasks() {
 
                     <div className="ml-auto text-xs text-slate-400 whitespace-nowrap">
                       Updated:{" "}
-                      <span className="text-slate-200">
+                      <span className="text-slate-200 font-semibold">
                         {formatDateTimeEastern(t.last_activity_at)}
                       </span>
                     </div>
@@ -471,7 +471,8 @@ export default function Tasks() {
                     </button>
 
                     {mentorMode && (
-                      <div className="ml-auto flex items-center gap-2 flex-wrap justify-end w-full sm:w-auto">
+                      // ✅ Left-aligned on mobile; right-aligned on desktop, with a little spacing polish.
+                      <div className="flex items-center gap-2 flex-wrap w-full mt-2 sm:mt-0 sm:w-auto sm:ml-auto sm:justify-end">
                         <select
                           defaultValue=""
                           onChange={(e) => mentorAssign(t.id, e.target.value)}
@@ -601,4 +602,5 @@ export default function Tasks() {
     </div>
   );
 }
+
 
