@@ -1,109 +1,280 @@
 # Warlocks 1507 Attendance
 
-**Student UI**
-- Select name from dropdown
-- Clock In / Clock Out (records date + time)
-- Pick Subteam
-- Buttons: **I need help** / **I need something to do**
-- Field: what you're currently working on
+Lockport Warlocks 1507 – Attendance & Task Tracking App
 
-**Mentor UI (different URL path)**
-- **/mentor** dashboard:
-  - who is clocked in / who isn't
-  - summary of students who clicked **I need help** or **I need something to do**
-  - student cards (click to view subteam + current work + recent sessions)
-  - attendance reports (date range) with CSV export
+A full-stack web application built for FIRST Robotics Team 1507 (Lockport Warlocks) to manage:
 
-> This build has **no authentication** - Anyone with the links can submit/view.
+Student attendance
 
----
+Mentor oversight & reports
 
-## Local Run
+Task assignment and progress tracking
 
-### 1) Database
-Create Postgres and run:
+Roster management
 
-```bash
-psql "$DATABASE_URL" -f server/schema.sql
-psql "$DATABASE_URL" -f server/seed.sql   # optional; edit names first
-```
+Safe yearly rollover for new build seasons
 
-### 2) Server
-```bash
-cd server
-cp .env.example .env
-# set DATABASE_URL
-npm install
-npm run dev
+Designed to be simple for students, powerful for mentors, and safe for administrators.
 
----
+🧩 Core Features
+👩‍🎓 Student Features
 
-## Docker (local, all-in-one)
+Clock in/out for meetings
 
-This repo includes a Docker/Compose setup that:
-- boots Postgres,
-- auto-runs `server/schema.sql` on first database creation, and
-- builds the React client and serves it from the Node server (single origin).
+Join or leave tasks
 
-```bash
-docker compose up --build
-```
+View task board by subteam
 
-Then open:
-- App: `http://localhost:3001/`
-- Mentor: `http://localhost:3001/mentor`
-- Manage roster: `http://localhost:3001/manage`
+Comment on tasks
 
-**Reset database:**
+Submit attendance correction requests if they forgot to clock in/out
 
-```bash
-docker compose down -v
-```
-```
+🧑‍🏫 Mentor Features
 
-### 3) Client
-```bash
-cd ../client
-cp .env.example .env
-# set VITE_API_URL (local server: http://localhost:3001)
-npm install
-npm run dev
+Live attendance dashboard
 
----
+Manual attendance entry (paper backfill supported)
 
-## Deploy 
-### Server (Web Service)
-- Root Directory: `server`
-- Build: `npm install`
-- Start: `npm start`
+Approve or deny attendance correction requests
 
-Env vars:
-- `DATABASE_URL` (Render internal DB URL)
-- `DATABASE_SSL=true`
-- `CLIENT_ORIGIN=<your client URL>`
+View attendance reports
 
-### Client (Static Site)
-- Root Directory: `client`
-- Build: `npm install && npm run build`
-- Publish: `dist`
+Full task board control:
 
-Env var:
-- `VITE_API_URL=<your server URL>`
+Assign students
 
-## Access keys (privacy safeguard)
-Set these on the **server** (Web Service env vars):
-- `MENTOR_KEY` — required for /mentor and all /api/mentor calls
-- `MANAGER_KEY` — required for /manage and all /api/admin calls
+Move tasks between columns
 
-Mentors/managers will be prompted for the key in the browser. Keys are stored in `sessionStorage` (clears when the browser is closed).
+Archive / unarchive tasks
 
-## Tasks Board (/tasks)
-- Stages: To Do → In Progress → Road Blocked → Done
-- Filter chips by subteam
-- Students can join/leave any task and post comments/notes.
-- Mentors (with `MENTOR_KEY`) can create tasks, assign students, and move task stages.
-- Stale indicator: tasks with no activity for 3+ days.
+Mobile-friendly task board (horizontal swipe + snap)
 
-## Timezone
-- All UI time/date displays are formatted for **America/New_York (Eastern)**.
-- Server uses Eastern date for "today" computations.
+🧑‍💼 Manager / Admin Features (/manage)
+
+Add or update students
+
+Assign subteams
+
+Activate / deactivate students
+
+Year rollover reset (clears attendance + tasks, keeps roster)
+
+⚠️ The /manage page is intentionally not linked in the UI.
+Access it directly at /manage.
+
+🧠 App Structure Overview
+CheckIn1507/
+├── client/               # React + Vite frontend
+│   ├── src/
+│   │   ├── pages/        # Student, Mentor, Manage pages
+│   │   ├── components/   # Reusable UI components
+│   │   ├── api.js        # API helper (handles access keys)
+│   │   └── time.js       # Eastern Time utilities
+│   └── Dockerfile        # Frontend build container
+│
+├── server/               # Node.js + Express backend
+│   ├── src/
+│   │   ├── index.js      # Main server entry + routes
+│   │   └── db.js         # PostgreSQL connection
+│   └── Dockerfile        # Backend container
+│
+├── docker-compose.yml    # Optional local orchestration
+└── README.md
+
+🔐 Access Control & Roles
+
+The app uses key-based access via HTTP headers.
+
+Keys
+
+Student → no key required
+
+Mentor → MENTOR_KEY
+
+Manager/Admin → MANAGER_KEY
+
+Keys are:
+
+Prompted for once per session
+
+Stored in sessionStorage
+
+Sent as x-access-key header on protected requests
+
+🗄️ Database (PostgreSQL)
+Key Tables
+
+students
+
+daily_sessions (attendance)
+
+attendance_corrections
+
+tasks
+
+task_assignments
+
+task_comments
+
+Year Rollover Behavior
+
+The year reset clears:
+
+Attendance
+
+Attendance corrections
+
+Tasks & task data
+
+It keeps:
+
+Student roster
+
+Active status
+
+Subteams
+
+🔄 Year Rollover (New Season Reset)
+
+Accessible from /manage.
+
+Safety Requirements (ALL must be true)
+
+Valid MANAGER_KEY
+
+Environment variable:
+
+ALLOW_YEAR_RESET=true
+
+
+User must type RESET to confirm
+
+What it does
+
+TRUNCATEs attendance + task tables
+
+Preserves students
+
+Resets IDs cleanly
+
+Runs inside a DB transaction (all-or-nothing)
+
+🐳 Docker Deployment (Recommended)
+
+This app is designed to run fully containerized.
+
+Environment Variables (Required)
+Backend
+DATABASE_URL=postgres://user:pass@host:5432/dbname
+MENTOR_KEY=your-mentor-key
+MANAGER_KEY=your-manager-key
+DATABASE_SSL=true
+
+Optional / Safety
+ALLOW_YEAR_RESET=true
+
+🐋 Dockerfiles
+Backend (server/Dockerfile)
+
+Node.js 20
+
+Express API
+
+PostgreSQL client
+
+Production-ready
+
+Frontend (client/Dockerfile)
+
+Node.js 20
+
+Vite build
+
+Static output served via Nginx
+
+SPA fallback for React routing
+
+▶️ Example: Docker Compose (Local Dev)
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: attendance1507
+      POSTGRES_USER: warlocks
+      POSTGRES_PASSWORD: secret
+    ports:
+      - "5432:5432"
+
+  server:
+    build: ./server
+    environment:
+      DATABASE_URL: postgres://warlocks:secret@db:5432/attendance1507
+      MENTOR_KEY: mentor123
+      MANAGER_KEY: manager123
+      DATABASE_SSL: "false"
+    ports:
+      - "3001:3001"
+    depends_on:
+      - db
+
+  client:
+    build: ./client
+    ports:
+      - "3000:80"
+
+☁️ Deploying on Render (Recommended)
+1️⃣ Backend
+
+Type: Web Service
+
+Runtime: Docker
+
+Root directory: /
+
+Dockerfile path: server/Dockerfile
+
+Add env vars in Render dashboard
+
+2️⃣ Frontend
+
+Type: Web Service
+
+Runtime: Docker
+
+Dockerfile path: client/Dockerfile
+
+React routing is handled via Nginx fallback — routes like /mentor, /manage, /tasks will not 404.
+
+🕒 Timezone Handling
+
+All dates and times are handled in America/New_York
+
+PostgreSQL DATE fields are returned as strings to avoid UTC shift bugs
+
+Time inputs use minute-precision only (step="60")
+
+📱 Mobile Support
+
+Responsive layouts throughout
+
+Task board supports:
+
+Horizontal swipe
+
+Column snap
+
+Accessible mentor controls on small screens
+
+🛠️ Tech Stack
+
+Frontend: React, Vite, TailwindCSS
+
+Backend: Node.js, Express
+
+Database: PostgreSQL
+
+Deployment: Docker, Render
+
+Auth: Key-based (simple & school-friendly)
