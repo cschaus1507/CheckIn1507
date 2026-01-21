@@ -1,200 +1,155 @@
 # Warlocks 1507 Attendance
+**Lockport Warlocks 1507 – Attendance & Task Tracking App**
 
-Lockport Warlocks 1507 – Attendance & Task Tracking App
+CheckIn1507 is a full-stack web application built specifically for **FIRST Robotics Team 1507 (Lockport Warlocks)** to manage:
 
-A full-stack web application built for FIRST Robotics Team 1507 (Lockport Warlocks) to manage:
+- Student attendance
+- Mentor oversight & reporting
+- Task assignment and progress tracking
+- Roster management
+- Safe yearly rollover between build seasons
 
-Student attendance
+The app is designed to be:
+- **Simple for students**
+- **Powerful for mentors**
+- **Safe and controlled for administrators**
+- **Reliable during a hectic build season**
 
-Mentor oversight & reports
+---
 
-Task assignment and progress tracking
+## Core Features
 
-Roster management
+### Student Features
+- Clock **in / out** for meetings
+- Join or leave tasks
+- View tasks by subteam
+- Comment on tasks
+- Submit **attendance correction requests** if they forgot to clock in or out
 
-Safe yearly rollover for new build seasons
+---
 
-Designed to be simple for students, powerful for mentors, and safe for administrators.
+### Mentor Features
+- Live **attendance dashboard**
+- Manual attendance entry (supports paper backfill)
+- Approve or deny attendance correction requests
+- Attendance reports
+- Full task board control:
+  - Assign students to tasks
+  - Move tasks between columns
+  - Archive / unarchive tasks
+- Mobile-friendly task board (horizontal swipe + snap)
 
-🧩 Core Features
-👩‍🎓 Student Features
+---
 
-Clock in/out for meetings
+### Manager / Admin Features (`/manage`)
+- Add or update students
+- Assign subteams
+- Activate / deactivate students
+- **New Year / New Season rollover reset**
 
-Join or leave tasks
+> ⚠️ The `/manage` page is intentionally **not linked** in the UI.  
+> Navigate directly to `/manage`.
 
-View task board by subteam
+---
 
-Comment on tasks
-
-Submit attendance correction requests if they forgot to clock in/out
-
-🧑‍🏫 Mentor Features
-
-Live attendance dashboard
-
-Manual attendance entry (paper backfill supported)
-
-Approve or deny attendance correction requests
-
-View attendance reports
-
-Full task board control:
-
-Assign students
-
-Move tasks between columns
-
-Archive / unarchive tasks
-
-Mobile-friendly task board (horizontal swipe + snap)
-
-🧑‍💼 Manager / Admin Features (/manage)
-
-Add or update students
-
-Assign subteams
-
-Activate / deactivate students
-
-Year rollover reset (clears attendance + tasks, keeps roster)
-
-⚠️ The /manage page is intentionally not linked in the UI.
-Access it directly at /manage.
-
-🧠 App Structure Overview
+## App Structure
 CheckIn1507/
-├── client/               # React + Vite frontend
-│   ├── src/
-│   │   ├── pages/        # Student, Mentor, Manage pages
-│   │   ├── components/   # Reusable UI components
-│   │   ├── api.js        # API helper (handles access keys)
-│   │   └── time.js       # Eastern Time utilities
-│   └── Dockerfile        # Frontend build container
+├── client/ # React + Vite frontend
+│ ├── src/
+│ │ ├── pages/ # Student, Mentor, Manage pages
+│ │ ├── components/ # Shared UI components
+│ │ ├── api.js # API helper (access keys)
+│ │ └── time.js # Eastern Time utilities
+│ └── Dockerfile # Frontend Docker build
 │
-├── server/               # Node.js + Express backend
-│   ├── src/
-│   │   ├── index.js      # Main server entry + routes
-│   │   └── db.js         # PostgreSQL connection
-│   └── Dockerfile        # Backend container
+├── server/ # Node.js + Express backend
+│ ├── src/
+│ │ ├── index.js # Server entry + routes
+│ │ └── db.js # PostgreSQL connection
+│ └── Dockerfile # Backend Docker build
 │
-├── docker-compose.yml    # Optional local orchestration
+├── docker-compose.yml # Optional local setup
 └── README.md
+---
+## Access Control & Roles
 
-🔐 Access Control & Roles
+The app uses **simple key-based access** (no accounts or emails).
 
-The app uses key-based access via HTTP headers.
+### Roles
+- **Student** → no key required
+- **Mentor** → requires `MENTOR_KEY`
+- **Manager/Admin** → requires `MANAGER_KEY`
 
-Keys
+### How it works
+- User is prompted once per session
+- Keys are stored in `sessionStorage`
+- Requests send the key as `x-access-key`
 
-Student → no key required
+---
 
-Mentor → MENTOR_KEY
+## Database (PostgreSQL)
 
-Manager/Admin → MANAGER_KEY
+### Key Tables
+- `students`
+- `daily_sessions` (attendance)
+- `attendance_corrections`
+- `tasks`
+- `task_assignments`
+- `task_comments`
 
-Keys are:
+### Timezone Handling
+- All dates/times are handled in **America/New_York**
+- PostgreSQL `DATE` fields are returned as strings to avoid UTC shift bugs
+- Time inputs are minute-precision only
 
-Prompted for once per session
+---
 
-Stored in sessionStorage
+## Year Rollover (New Season Reset)
 
-Sent as x-access-key header on protected requests
+Available on the **/Manage** page.
 
-🗄️ Database (PostgreSQL)
-Key Tables
+### What it clears
+- Attendance records
+- Attendance correction requests
+- Tasks
+- Task assignments
+- Task comments
 
-students
+### What it keeps
+- Student roster
+- Active/inactive status
+- Subteams
 
-daily_sessions (attendance)
+### Safety Requirements (ALL must be true)
+1. Valid `MANAGER_KEY`
+2. Environment variable:
+3. User must type **RESET** to confirm
 
-attendance_corrections
+The reset runs inside a database transaction (all-or-nothing).
 
-tasks
+---
 
-task_assignments
+## Docker Deployment (Recommended)
 
-task_comments
+The app is designed to run **fully containerized**.
 
-Year Rollover Behavior
+---
 
-The year reset clears:
+## Required Environment Variables
 
-Attendance
-
-Attendance corrections
-
-Tasks & task data
-
-It keeps:
-
-Student roster
-
-Active status
-
-Subteams
-
-🔄 Year Rollover (New Season Reset)
-
-Accessible from /manage.
-
-Safety Requirements (ALL must be true)
-
-Valid MANAGER_KEY
-
-Environment variable:
-
-ALLOW_YEAR_RESET=true
-
-
-User must type RESET to confirm
-
-What it does
-
-TRUNCATEs attendance + task tables
-
-Preserves students
-
-Resets IDs cleanly
-
-Runs inside a DB transaction (all-or-nothing)
-
-🐳 Docker Deployment (Recommended)
-
-This app is designed to run fully containerized.
-
-Environment Variables (Required)
-Backend
-DATABASE_URL=postgres://user:pass@host:5432/dbname
+### Backend
+DATABASE_URL=postgres://user:password@host:5432/dbname
 MENTOR_KEY=your-mentor-key
 MANAGER_KEY=your-manager-key
 DATABASE_SSL=true
-
-Optional / Safety
+### Optional / Safety
 ALLOW_YEAR_RESET=true
+> Leave `ALLOW_YEAR_RESET` unset most of the year and enable it only during rollover.
 
-🐋 Dockerfiles
-Backend (server/Dockerfile)
+---
 
-Node.js 20
-
-Express API
-
-PostgreSQL client
-
-Production-ready
-
-Frontend (client/Dockerfile)
-
-Node.js 20
-
-Vite build
-
-Static output served via Nginx
-
-SPA fallback for React routing
-
-▶️ Example: Docker Compose (Local Dev)
+## Docker Compose Example (Local Development)
+```yaml
 version: "3.9"
 
 services:
@@ -224,57 +179,13 @@ services:
     ports:
       - "3000:80"
 
-☁️ Deploying on Render (Recommended)
-1️⃣ Backend
-
-Type: Web Service
-
-Runtime: Docker
-
-Root directory: /
-
-Dockerfile path: server/Dockerfile
-
-Add env vars in Render dashboard
-
-2️⃣ Frontend
-
-Type: Web Service
-
-Runtime: Docker
-
-Dockerfile path: client/Dockerfile
-
-React routing is handled via Nginx fallback — routes like /mentor, /manage, /tasks will not 404.
-
-🕒 Timezone Handling
-
-All dates and times are handled in America/New_York
-
-PostgreSQL DATE fields are returned as strings to avoid UTC shift bugs
-
-Time inputs use minute-precision only (step="60")
-
-📱 Mobile Support
-
-Responsive layouts throughout
-
-Task board supports:
-
-Horizontal swipe
-
-Column snap
-
-Accessible mentor controls on small screens
-
-🛠️ Tech Stack
-
-Frontend: React, Vite, TailwindCSS
-
+###Tech Stack
+Frontend: React, Vite, Tailwind CSS
 Backend: Node.js, Express
-
 Database: PostgreSQL
-
 Deployment: Docker, Render
 
-Auth: Key-based (simple & school-friendly)
+Auth: Key-based (school-friendly)
+
+
+
