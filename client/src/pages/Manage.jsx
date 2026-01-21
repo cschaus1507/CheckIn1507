@@ -108,6 +108,8 @@ export default function Manage() {
 
   if (!ready) return null;
 
+  if (!ready) return null;
+
   return (
     <div className="grid gap-6">
       <div className="rounded-2xl border border-slate-800 bg-gradient-to-r from-slate-900/70 to-slate-900/20 p-6 flex items-start gap-4">
